@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
 import type { AddRationBody } from "@/types";
-import { fromISO, toISO } from "@/lib/utils";
+import { fromISO, toISO, getMonFri } from "@/lib/utils";
 
 // Auth setup
 const auth = new google.auth.GoogleAuth({
@@ -26,16 +26,6 @@ function startOfWeekMonday(iso: string) {
   const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
   return toISO(d);
-}
-function getMonFri(weekStartISO: string) {
-  const monday = fromISO(weekStartISO);
-  const out: string[] = [];
-  for (let i = 0; i < 5; i++) {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    out.push(toISO(d));
-  }
-  return out;
 }
 
 function keyOf(weekStart: string, date: string, name: string) {

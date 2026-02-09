@@ -1,6 +1,6 @@
 "use client";
 
-import * as React from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -21,7 +21,12 @@ import {
   ComboboxList,
 } from "@/components/ui/combobox";
 import type { Meal, RationType, DayPlan, WeekPlan } from "@/types";
-import { fromISO, toISO } from "@/lib/utils";
+import {
+  fromISO,
+  toISO,
+  startOfDayLocal,
+  startOfWeekMonday,
+} from "@/lib/utils";
 
 const MEALS: { key: Meal; label: string }[] = [
   { key: "B", label: "Breakfast" },
@@ -38,24 +43,12 @@ const RATION_OPTIONS: { value: RationType; label: string }[] = [
 ];
 
 // ---------- LOCAL date helpers (no UTC drift) ----------
-
-function startOfDayLocal(d = new Date()) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
 function addDaysLocal(date: Date, n: number) {
   const d = new Date(date);
   d.setDate(d.getDate() + n);
   return d;
 }
-function startOfWeekMonday(date = new Date()) {
-  const d = startOfDayLocal(date);
-  const day = d.getDay(); // Sun=0..Sat=6
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  return d;
-}
+
 function nextWeekStartISO(weekStartISO: string, deltaWeeks: number) {
   const base = fromISO(weekStartISO);
   const moved = addDaysLocal(base, deltaWeeks * 7);
@@ -131,23 +124,20 @@ export default function WeeklyRationPlanner({
   const nameKey = `${baseKey}:name`;
   const defaultRationKey = `${baseKey}:defaultRationType`;
 
-  const minWeekStartISO = React.useMemo(() => getMinBookableWeekStartISO(), []);
-  const [name, setName] = React.useState("");
-  const [defaultRationType, setDefaultRationType] = React.useState<
-    RationType | ""
-  >("");
+  const minWeekStartISO = useMemo(() => getMinBookableWeekStartISO(), []);
+  const [name, setName] = useState("");
+  const [defaultRationType, setDefaultRationType] = useState<RationType | "">(
+    "",
+  );
 
-  const [weekStart, setWeekStart] = React.useState<string>(minWeekStartISO);
+  const [weekStart, setWeekStart] = useState<string>(minWeekStartISO);
 
   const draftKey = `${baseKey}:weekDraft:${weekStart}`;
-  const [plan, setPlan] = React.useState<WeekPlan>(() =>
+  const [plan, setPlan] = useState<WeekPlan>(() =>
     buildDefaultWeek(minWeekStartISO),
   );
 
-  const dayKeys = React.useMemo(
-    () => Object.keys(plan.days).sort(),
-    [plan.days],
-  );
+  const dayKeys = useMemo(() => Object.keys(plan.days).sort(), [plan.days]);
 
   const readOnlyWeek = weekStart < minWeekStartISO;
 
@@ -155,15 +145,14 @@ export default function WeeklyRationPlanner({
   // We keep a "last submitted" snapshot in localStorage. If current plan differs, block nav.
   const submittedKey = `${baseKey}:weekSubmitted:${weekStart}`;
 
-  const stableStringify = React.useCallback(
+  const stableStringify = useCallback(
     (obj: unknown) => JSON.stringify(obj),
     [],
   );
 
-  const [submittedFingerprint, setSubmittedFingerprint] =
-    React.useState<string>("");
+  const [submittedFingerprint, setSubmittedFingerprint] = useState<string>("");
 
-  React.useEffect(() => {
+  useEffect(() => {
     try {
       const raw = localStorage.getItem(submittedKey);
       setSubmittedFingerprint(raw ?? "");
@@ -172,12 +161,12 @@ export default function WeeklyRationPlanner({
     }
   }, [submittedKey]);
 
-  const currentFingerprint = React.useMemo(
+  const currentFingerprint = useMemo(
     () => stableStringify(plan),
     [plan, stableStringify],
   );
 
-  const hasUnsavedChanges = React.useMemo(() => {
+  const hasUnsavedChanges = useMemo(() => {
     // If nothing submitted yet, treat as unsaved only when user has made any selection
     if (!submittedFingerprint) {
       // “dirty” if any enabled day OR any meal selected
@@ -206,7 +195,7 @@ export default function WeeklyRationPlanner({
   };
 
   // Load identity
-  React.useEffect(() => {
+  useEffect(() => {
     try {
       setName(localStorage.getItem(nameKey) ?? "");
       setDefaultRationType(
@@ -217,14 +206,14 @@ export default function WeeklyRationPlanner({
   }, []);
 
   // Persist identity
-  React.useEffect(() => {
+  useEffect(() => {
     try {
       if (name) localStorage.setItem(nameKey, name);
       else localStorage.removeItem(nameKey);
     } catch {}
   }, [name, nameKey]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     try {
       if (defaultRationType)
         localStorage.setItem(defaultRationKey, defaultRationType);
@@ -233,13 +222,62 @@ export default function WeeklyRationPlanner({
   }, [defaultRationType, defaultRationKey]);
 
   // Load week draft when weekStart changes
-  React.useEffect(() => {
-    const raw = localStorage.getItem(draftKey);
-    setPlan(normalizeOrRebuildDraft(raw, weekStart));
-  }, [draftKey, weekStart]);
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      // 1) Try server if we have a name
+      if (name.trim()) {
+        try {
+          const qs = new URLSearchParams({
+            name: name.trim(),
+            weekStart,
+          });
+          const res = await fetch(`/api/getRation?${qs.toString()}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (!cancelled && data?.plan?.days) {
+              setPlan(data.plan);
+
+              // Optional: if server returns rationType, hydrate default ration
+              if (data.rationType && !defaultRationType) {
+                setDefaultRationType(data.rationType);
+              }
+
+              // Also set submitted fingerprint to allow navigation
+              try {
+                localStorage.setItem(submittedKey, JSON.stringify(data.plan));
+                setSubmittedFingerprint(JSON.stringify(data.plan));
+              } catch {}
+
+              return; // stop here (server is source of truth)
+            }
+          }
+        } catch {
+          // ignore and fallback
+        }
+      }
+
+      // 2) fallback to local draft
+      const raw = localStorage.getItem(draftKey);
+      setPlan(normalizeOrRebuildDraft(raw, weekStart));
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    name,
+    weekStart,
+    draftKey,
+    submittedKey,
+    defaultRationType,
+    normalizeOrRebuildDraft, // if yours is outside, remove from deps
+  ]);
 
   // Persist week draft
-  React.useEffect(() => {
+  useEffect(() => {
     try {
       localStorage.setItem(draftKey, JSON.stringify(plan));
     } catch {}
@@ -279,12 +317,10 @@ export default function WeeklyRationPlanner({
   const clearWeek = () => {
     if (readOnlyWeek) return;
     setPlan(buildDefaultWeek(weekStart));
-    try {
-      localStorage.removeItem(draftKey);
-    } catch {}
+    toast.info("Cleared", { description: "Click Submit to save changes." });
   };
 
-  const selectedCount = React.useMemo(() => {
+  const selectedCount = useMemo(() => {
     let count = 0;
     for (const dateISO of Object.keys(plan.days)) {
       const day = plan.days[dateISO];
@@ -301,40 +337,41 @@ export default function WeeklyRationPlanner({
     !readOnlyWeek &&
     Boolean(name.trim()) &&
     Boolean(defaultRationType) &&
-    selectedCount > 0;
+    hasUnsavedChanges;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
 
-    // when you wire backend, do the API call here then only mark submitted on success.
-    console.log("SUBMIT PAYLOAD", {
-      name: name.trim(),
-      rationType: defaultRationType,
-      weekStart: plan.weekStart,
-      plan,
-    });
-
-    await fetch("/api/addRation", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        rationType: defaultRationType,
-        weekStart: plan.weekStart,
-        plan,
-      }),
-    });
-
-    // mark "submitted" snapshot so navigation is allowed
     try {
+      const res = await fetch("/api/addRation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          rationType: defaultRationType,
+          weekStart: plan.weekStart,
+          plan,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error("Submit failed", {
+          description: err?.error ?? "Please try again.",
+        });
+        return;
+      }
+
+      // ✅ only mark submitted after success
       localStorage.setItem(submittedKey, JSON.stringify(plan));
       setSubmittedFingerprint(JSON.stringify(plan));
+
       toast.success("Submitted", {
         description: "Your rations have been saved.",
       });
     } catch {
-      toast.error("Could not save submission status", {
-        description: "Please try again.",
+      toast.error("Submit failed", {
+        description: "Network error. Try again.",
       });
     }
   };
