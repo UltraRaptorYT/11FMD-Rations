@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -19,19 +20,8 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
-
-type Meal = "B" | "L" | "D";
-type RationType = "nm" | "m" | "nmsd" | "vi" | "vc";
-
-type DayPlan = {
-  enabled: boolean;
-  meals: Record<Meal, boolean>;
-};
-
-type WeekPlan = {
-  weekStart: string; // Monday local ISO date
-  days: Record<string, DayPlan>; // Mon–Fri only
-};
+import type { Meal, RationType, DayPlan, WeekPlan } from "@/types";
+import { fromISO, toISO } from "@/lib/utils";
 
 const MEALS: { key: Meal; label: string }[] = [
   { key: "B", label: "Breakfast" },
@@ -47,16 +37,8 @@ const RATION_OPTIONS: { value: RationType; label: string }[] = [
   { value: "vc", label: "Vegetarian Chinese" },
 ];
 
-// ---------- LOCAL date helpers ----------
-function toLocalISO(d: Date) {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-function fromISO(iso: string) {
-  return new Date(`${iso}T00:00:00`);
-}
+// ---------- LOCAL date helpers (no UTC drift) ----------
+
 function startOfDayLocal(d = new Date()) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
@@ -67,7 +49,7 @@ function addDaysLocal(date: Date, n: number) {
   d.setDate(d.getDate() + n);
   return d;
 }
-function startOfWeekMondayLocal(date = new Date()) {
+function startOfWeekMonday(date = new Date()) {
   const d = startOfDayLocal(date);
   const day = d.getDay(); // Sun=0..Sat=6
   const diff = day === 0 ? -6 : 1 - day;
@@ -77,7 +59,7 @@ function startOfWeekMondayLocal(date = new Date()) {
 function nextWeekStartISO(weekStartISO: string, deltaWeeks: number) {
   const base = fromISO(weekStartISO);
   const moved = addDaysLocal(base, deltaWeeks * 7);
-  return toLocalISO(startOfWeekMondayLocal(moved));
+  return toISO(startOfWeekMonday(moved));
 }
 function formatDayLabel(iso: string) {
   const d = fromISO(iso);
@@ -89,14 +71,14 @@ function formatDayLabel(iso: string) {
 }
 
 function buildDefaultWeek(weekStartISO: string): WeekPlan {
-  const normalizedWeekStartISO = toLocalISO(
-    startOfWeekMondayLocal(fromISO(weekStartISO)),
+  const normalizedWeekStartISO = toISO(
+    startOfWeekMonday(fromISO(weekStartISO)),
   );
   const weekStart = fromISO(normalizedWeekStartISO);
 
   const days: Record<string, DayPlan> = {};
   for (let i = 0; i < 5; i++) {
-    const iso = toLocalISO(addDaysLocal(weekStart, i));
+    const iso = toISO(addDaysLocal(weekStart, i));
     days[iso] = { enabled: false, meals: { B: false, L: false, D: false } };
   }
   return { weekStart: normalizedWeekStartISO, days };
@@ -110,7 +92,7 @@ function isPastDateLocked(dateISO: string) {
 
 function getMinBookableWeekStartISO() {
   const lead = addDaysLocal(startOfDayLocal(), 14);
-  return toLocalISO(startOfWeekMondayLocal(lead));
+  return toISO(startOfWeekMonday(lead));
 }
 
 function normalizeOrRebuildDraft(
@@ -150,13 +132,11 @@ export default function WeeklyRationPlanner({
   const defaultRationKey = `${baseKey}:defaultRationType`;
 
   const minWeekStartISO = React.useMemo(() => getMinBookableWeekStartISO(), []);
-
   const [name, setName] = React.useState("");
   const [defaultRationType, setDefaultRationType] = React.useState<
     RationType | ""
   >("");
 
-  // 👇 start at min bookable week, but allow going backwards for viewing
   const [weekStart, setWeekStart] = React.useState<string>(minWeekStartISO);
 
   const draftKey = `${baseKey}:weekDraft:${weekStart}`;
@@ -169,8 +149,61 @@ export default function WeeklyRationPlanner({
     [plan.days],
   );
 
-  // Week is read-only if it’s before booking window (2-week lead time)
   const readOnlyWeek = weekStart < minWeekStartISO;
+
+  // --------- Unsaved-change guard (per-week) ---------
+  // We keep a "last submitted" snapshot in localStorage. If current plan differs, block nav.
+  const submittedKey = `${baseKey}:weekSubmitted:${weekStart}`;
+
+  const stableStringify = React.useCallback(
+    (obj: unknown) => JSON.stringify(obj),
+    [],
+  );
+
+  const [submittedFingerprint, setSubmittedFingerprint] =
+    React.useState<string>("");
+
+  React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem(submittedKey);
+      setSubmittedFingerprint(raw ?? "");
+    } catch {
+      setSubmittedFingerprint("");
+    }
+  }, [submittedKey]);
+
+  const currentFingerprint = React.useMemo(
+    () => stableStringify(plan),
+    [plan, stableStringify],
+  );
+
+  const hasUnsavedChanges = React.useMemo(() => {
+    // If nothing submitted yet, treat as unsaved only when user has made any selection
+    if (!submittedFingerprint) {
+      // “dirty” if any enabled day OR any meal selected
+      for (const dateISO of Object.keys(plan.days)) {
+        const d = plan.days[dateISO];
+        if (d.enabled) return true;
+        if (d.meals.B || d.meals.L || d.meals.D) return true;
+      }
+      return false;
+    }
+    return currentFingerprint !== submittedFingerprint;
+  }, [submittedFingerprint, currentFingerprint, plan.days]);
+
+  const guardNavigate = (fn: () => void) => {
+    if (readOnlyWeek) {
+      fn();
+      return;
+    }
+    if (hasUnsavedChanges) {
+      toast.error("You have unsaved changes", {
+        description: "Please submit before switching weeks.",
+      });
+      return;
+    }
+    fn();
+  };
 
   // Load identity
   React.useEffect(() => {
@@ -205,15 +238,18 @@ export default function WeeklyRationPlanner({
     setPlan(normalizeOrRebuildDraft(raw, weekStart));
   }, [draftKey, weekStart]);
 
-  // Persist week draft (still okay; drafts for past weeks are harmless)
+  // Persist week draft
   React.useEffect(() => {
     try {
       localStorage.setItem(draftKey, JSON.stringify(plan));
     } catch {}
   }, [draftKey, plan]);
 
-  const prevWeek = () => setWeekStart(nextWeekStartISO(weekStart, -1));
-  const nextWeek = () => setWeekStart(nextWeekStartISO(weekStart, +1));
+  const prevWeek = () =>
+    guardNavigate(() => setWeekStart(nextWeekStartISO(weekStart, -1)));
+
+  const nextWeek = () =>
+    guardNavigate(() => setWeekStart(nextWeekStartISO(weekStart, +1)));
 
   const setDayEnabled = (dateISO: string, enabled: boolean) => {
     if (readOnlyWeek) return;
@@ -266,6 +302,42 @@ export default function WeeklyRationPlanner({
     Boolean(name.trim()) &&
     Boolean(defaultRationType) &&
     selectedCount > 0;
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+
+    // when you wire backend, do the API call here then only mark submitted on success.
+    console.log("SUBMIT PAYLOAD", {
+      name: name.trim(),
+      rationType: defaultRationType,
+      weekStart: plan.weekStart,
+      plan,
+    });
+
+    await fetch("/api/addRation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        rationType: defaultRationType,
+        weekStart: plan.weekStart,
+        plan,
+      }),
+    });
+
+    // mark "submitted" snapshot so navigation is allowed
+    try {
+      localStorage.setItem(submittedKey, JSON.stringify(plan));
+      setSubmittedFingerprint(JSON.stringify(plan));
+      toast.success("Submitted", {
+        description: "Your rations have been saved.",
+      });
+    } catch {
+      toast.error("Could not save submission status", {
+        description: "Please try again.",
+      });
+    }
+  };
 
   return (
     <div className="flex flex-col gap-6 max-w-xl">
@@ -328,6 +400,11 @@ export default function WeeklyRationPlanner({
             Earliest editable week starts {minWeekStartISO} (2-week lead time)
             {readOnlyWeek ? (
               <span className="ml-2 text-xs font-medium">(Read-only)</span>
+            ) : null}
+            {hasUnsavedChanges && !readOnlyWeek ? (
+              <span className="ml-2 text-xs font-medium text-orange-600">
+                (Unsaved changes)
+              </span>
             ) : null}
           </div>
         </div>
@@ -396,18 +473,7 @@ export default function WeeklyRationPlanner({
           Clear week
         </Button>
 
-        <Button
-          className="flex-1"
-          disabled={!canSubmit}
-          onClick={() => {
-            console.log("SUBMIT PAYLOAD", {
-              name: name.trim(),
-              rationType: defaultRationType,
-              weekStart: plan.weekStart,
-              plan,
-            });
-          }}
-        >
+        <Button className="flex-1" disabled={!canSubmit} onClick={handleSubmit}>
           Submit
         </Button>
       </div>
