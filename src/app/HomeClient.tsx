@@ -320,18 +320,8 @@ export default function WeeklyRationPlanner({
     toast.info("Cleared", { description: "Click Submit to save changes." });
   };
 
-  const selectedCount = useMemo(() => {
-    let count = 0;
-    for (const dateISO of Object.keys(plan.days)) {
-      const day = plan.days[dateISO];
-      if (!day.enabled) continue;
-      if (isPastDateLocked(dateISO)) continue;
-      for (const m of Object.keys(day.meals) as Meal[]) {
-        if (day.meals[m]) count++;
-      }
-    }
-    return count;
-  }, [plan]);
+  const goToCurrentBookingWeek = () =>
+    guardNavigate(() => setWeekStart(minWeekStartISO));
 
   const canSubmit =
     !readOnlyWeek &&
@@ -429,6 +419,25 @@ export default function WeeklyRationPlanner({
         </div>
       </div>
 
+      <div className="flex items-center justify-between">
+        <Button
+          variant="outline"
+          onClick={goToCurrentBookingWeek}
+          disabled={weekStart === minWeekStartISO}
+          title="Jump to earliest editable week"
+        >
+          This week
+        </Button>
+        <Button
+          variant="outline"
+          onClick={goToCurrentBookingWeek}
+          disabled={weekStart === minWeekStartISO}
+          title="Jump to earliest editable week"
+        >
+          Booking Now
+        </Button>
+      </div>
+
       {/* Week nav */}
       <div className="flex items-center justify-between">
         <div className="font-medium">
@@ -450,6 +459,7 @@ export default function WeeklyRationPlanner({
           <Button variant="outline" onClick={prevWeek}>
             Prev
           </Button>
+
           <Button variant="outline" onClick={nextWeek}>
             Next
           </Button>
