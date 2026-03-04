@@ -225,8 +225,9 @@ export default function WeeklyRationPlanner({
   useEffect(() => {
     let cancelled = false;
 
+    setPlan(buildDefaultWeek(weekStart));
+
     async function load() {
-      // 1) Try server if we have a name
       if (name.trim()) {
         try {
           const qs = new URLSearchParams({
@@ -258,23 +259,17 @@ export default function WeeklyRationPlanner({
         }
       }
 
-      // 2) fallback to local draft
-      const raw = localStorage.getItem(draftKey);
-      setPlan(normalizeOrRebuildDraft(raw, weekStart));
+      if (!cancelled) {
+        const raw = localStorage.getItem(draftKey);
+        setPlan(normalizeOrRebuildDraft(raw, weekStart));
+      }
     }
 
     load();
     return () => {
       cancelled = true;
     };
-  }, [
-    name,
-    weekStart,
-    draftKey,
-    submittedKey,
-    defaultRationType,
-    normalizeOrRebuildDraft, // if yours is outside, remove from deps
-  ]);
+  }, [name, weekStart, draftKey, submittedKey, defaultRationType]);
 
   // Persist week draft
   useEffect(() => {
@@ -393,7 +388,7 @@ export default function WeeklyRationPlanner({
         </div>
 
         <div className="space-y-2">
-          <Label>Ration Type (Default)</Label>
+          <Label>Ration Type</Label>
           <Select
             value={defaultRationType}
             onValueChange={(v) => setDefaultRationType(v as any)}
@@ -419,111 +414,287 @@ export default function WeeklyRationPlanner({
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
-        <Button
-          variant="outline"
-          onClick={goToCurrentBookingWeek}
-          disabled={weekStart === minWeekStartISO}
-          title="Jump to earliest editable week"
-        >
-          This week
-        </Button>
-        <Button
-          variant="outline"
-          onClick={goToCurrentBookingWeek}
-          disabled={weekStart === minWeekStartISO}
-          title="Jump to earliest editable week"
-        >
-          Booking Now
-        </Button>
-      </div>
-
-      {/* Week nav */}
-      <div className="flex items-center justify-between">
-        <div className="font-medium">
-          Week of {plan.weekStart} (Mon–Fri)
-          <div className="text-xs opacity-70">
-            Earliest editable week starts {minWeekStartISO} (2-week lead time)
-            {readOnlyWeek ? (
-              <span className="ml-2 text-xs font-medium">(Read-only)</span>
-            ) : null}
-            {hasUnsavedChanges && !readOnlyWeek ? (
-              <span className="ml-2 text-xs font-medium text-orange-600">
-                (Unsaved changes)
-              </span>
-            ) : null}
+      {/* Only show planner after identity is filled */}
+      {!name.trim() || !defaultRationType ? (
+        <p className="text-sm text-muted-foreground">
+          Please fill in your name and ration type above to start planning.
+        </p>
+      ) : (
+        <>
+          <div className="flex items-center justify-between">
+            <Button
+              variant="outline"
+              onClick={goToCurrentBookingWeek}
+              disabled={weekStart === minWeekStartISO}
+              title="Jump to earliest editable week"
+            >
+              This week
+            </Button>
+            <Button
+              variant="outline"
+              onClick={goToCurrentBookingWeek}
+              disabled={weekStart === minWeekStartISO}
+              title="Jump to earliest editable week"
+            >
+              Booking Now
+            </Button>
           </div>
-        </div>
 
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={prevWeek}>
-            Prev
-          </Button>
-
-          <Button variant="outline" onClick={nextWeek}>
-            Next
-          </Button>
-        </div>
-      </div>
-
-      {/* Week grid */}
-      <div className="space-y-3">
-        {dayKeys.map((dateISO) => {
-          const day = plan.days[dateISO];
-          const locked = readOnlyWeek || isPastDateLocked(dateISO);
-
-          return (
-            <div key={dateISO} className="border rounded-lg p-3 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="font-medium">
-                  {formatDayLabel(dateISO)}
-                  {locked ? (
-                    <span className="ml-2 text-xs opacity-60">(Locked)</span>
-                  ) : null}
-                </div>
-
-                <Button
-                  variant={day.enabled ? "default" : "outline"}
-                  onClick={() => setDayEnabled(dateISO, !day.enabled)}
-                  disabled={locked}
-                >
-                  {day.enabled ? "Have ration" : "No ration"}
-                </Button>
+          {/* Week nav */}
+          <div className="flex items-center justify-between">
+            <div className="font-medium">
+              Week of {plan.weekStart} (Mon–Fri)
+              <div className="text-xs opacity-70">
+                Earliest editable week starts {minWeekStartISO} (2-week lead
+                time)
+                {readOnlyWeek ? (
+                  <span className="ml-2 text-xs font-medium">(Read-only)</span>
+                ) : null}
+                {hasUnsavedChanges && !readOnlyWeek ? (
+                  <span className="ml-2 text-xs font-medium text-orange-600">
+                    (Unsaved changes)
+                  </span>
+                ) : null}
               </div>
+            </div>
 
-              {day.enabled && (
-                <div className="flex flex-wrap gap-2">
-                  {MEALS.map((m) => (
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={prevWeek}>
+                Prev
+              </Button>
+              <Button variant="outline" onClick={nextWeek}>
+                Next
+              </Button>
+            </div>
+          </div>
+
+          {/* Week grid */}
+          <div className="space-y-3">
+            {dayKeys.map((dateISO) => {
+              const day = plan.days[dateISO];
+              const locked = readOnlyWeek || isPastDateLocked(dateISO);
+
+              return (
+                <div key={dateISO} className="border rounded-lg p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium">
+                      {formatDayLabel(dateISO)}
+                      {locked ? (
+                        <span className="ml-2 text-xs opacity-60">
+                          (Locked)
+                        </span>
+                      ) : null}
+                    </div>
+
                     <Button
-                      key={m.key}
-                      variant={day.meals[m.key] ? "default" : "outline"}
-                      onClick={() => toggleMeal(dateISO, m.key)}
+                      variant={day.enabled ? "default" : "outline"}
+                      onClick={() => setDayEnabled(dateISO, !day.enabled)}
                       disabled={locked}
                     >
-                      {m.label}
+                      {day.enabled ? "Have ration" : "No ration"}
                     </Button>
-                  ))}
+                  </div>
+
+                  {day.enabled && (
+                    <div className="flex flex-wrap gap-2">
+                      {MEALS.map((m) => (
+                        <Button
+                          key={m.key}
+                          variant={day.meals[m.key] ? "default" : "outline"}
+                          onClick={() => toggleMeal(dateISO, m.key)}
+                          disabled={locked}
+                        >
+                          {m.label}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
 
-      {/* Actions */}
-      <div className="flex gap-2">
-        <Button
-          variant="destructive"
-          onClick={clearWeek}
-          disabled={readOnlyWeek}
-        >
-          Clear week
-        </Button>
+          {/* Actions */}
+          <div className="flex gap-2">
+            <Button
+              variant="destructive"
+              onClick={clearWeek}
+              disabled={readOnlyWeek}
+            >
+              Clear week
+            </Button>
 
-        <Button className="flex-1" disabled={!canSubmit} onClick={handleSubmit}>
-          Submit
-        </Button>
-      </div>
+            <Button
+              className="flex-1"
+              disabled={!canSubmit}
+              onClick={handleSubmit}
+            >
+              Submit
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
+
+  // return (
+  //   <div className="flex flex-col gap-6 max-w-xl">
+  //     {/* Identity */}
+  //     <div className="space-y-3">
+  //       <div className="space-y-2">
+  //         <Label htmlFor="name">Your Name</Label>
+
+  //         <Combobox
+  //           items={namelist}
+  //           value={name}
+  //           onValueChange={(val) => setName(val || "")}
+  //         >
+  //           <ComboboxInput id="name" placeholder="Enter your name" />
+  //           <ComboboxContent>
+  //             <ComboboxEmpty>No name found</ComboboxEmpty>
+  //             <ComboboxList>
+  //               {(item) => (
+  //                 <ComboboxItem key={item} value={item}>
+  //                   {item}
+  //                 </ComboboxItem>
+  //               )}
+  //             </ComboboxList>
+  //           </ComboboxContent>
+  //         </Combobox>
+  //       </div>
+
+  //       <div className="space-y-2">
+  //         <Label>Ration Type</Label>
+  //         <Select
+  //           value={defaultRationType}
+  //           onValueChange={(v) => setDefaultRationType(v as any)}
+  //         >
+  //           <SelectTrigger>
+  //             <SelectValue placeholder="Choose ration type" />
+  //           </SelectTrigger>
+  //           <SelectContent>
+  //             <SelectGroup>
+  //               {RATION_OPTIONS.map((o) => (
+  //                 <SelectItem key={o.value} value={o.value}>
+  //                   {o.label}
+  //                 </SelectItem>
+  //               ))}
+  //             </SelectGroup>
+  //           </SelectContent>
+  //         </Select>
+
+  //         <p className="text-xs opacity-70">
+  //           This ration type will be applied to all bookings (no per-day
+  //           override).
+  //         </p>
+  //       </div>
+  //     </div>
+
+  //     <div className="flex items-center justify-between">
+  //       <Button
+  //         variant="outline"
+  //         onClick={goToCurrentBookingWeek}
+  //         disabled={weekStart === minWeekStartISO}
+  //         title="Jump to earliest editable week"
+  //       >
+  //         This week
+  //       </Button>
+  //       <Button
+  //         variant="outline"
+  //         onClick={goToCurrentBookingWeek}
+  //         disabled={weekStart === minWeekStartISO}
+  //         title="Jump to earliest editable week"
+  //       >
+  //         Booking Now
+  //       </Button>
+  //     </div>
+
+  //     {/* Week nav */}
+  //     <div className="flex items-center justify-between">
+  //       <div className="font-medium">
+  //         Week of {plan.weekStart} (Mon–Fri)
+  //         <div className="text-xs opacity-70">
+  //           Earliest editable week starts {minWeekStartISO} (2-week lead time)
+  //           {readOnlyWeek ? (
+  //             <span className="ml-2 text-xs font-medium">(Read-only)</span>
+  //           ) : null}
+  //           {hasUnsavedChanges && !readOnlyWeek ? (
+  //             <span className="ml-2 text-xs font-medium text-orange-600">
+  //               (Unsaved changes)
+  //             </span>
+  //           ) : null}
+  //         </div>
+  //       </div>
+
+  //       <div className="flex gap-2">
+  //         <Button variant="outline" onClick={prevWeek}>
+  //           Prev
+  //         </Button>
+
+  //         <Button variant="outline" onClick={nextWeek}>
+  //           Next
+  //         </Button>
+  //       </div>
+  //     </div>
+
+  //     {/* Week grid */}
+  //     <div className="space-y-3">
+  //       {dayKeys.map((dateISO) => {
+  //         const day = plan.days[dateISO];
+  //         const locked = readOnlyWeek || isPastDateLocked(dateISO);
+
+  //         return (
+  //           <div key={dateISO} className="border rounded-lg p-3 space-y-3">
+  //             <div className="flex items-center justify-between">
+  //               <div className="font-medium">
+  //                 {formatDayLabel(dateISO)}
+  //                 {locked ? (
+  //                   <span className="ml-2 text-xs opacity-60">(Locked)</span>
+  //                 ) : null}
+  //               </div>
+
+  //               <Button
+  //                 variant={day.enabled ? "default" : "outline"}
+  //                 onClick={() => setDayEnabled(dateISO, !day.enabled)}
+  //                 disabled={locked}
+  //               >
+  //                 {day.enabled ? "Have ration" : "No ration"}
+  //               </Button>
+  //             </div>
+
+  //             {day.enabled && (
+  //               <div className="flex flex-wrap gap-2">
+  //                 {MEALS.map((m) => (
+  //                   <Button
+  //                     key={m.key}
+  //                     variant={day.meals[m.key] ? "default" : "outline"}
+  //                     onClick={() => toggleMeal(dateISO, m.key)}
+  //                     disabled={locked}
+  //                   >
+  //                     {m.label}
+  //                   </Button>
+  //                 ))}
+  //               </div>
+  //             )}
+  //           </div>
+  //         );
+  //       })}
+  //     </div>
+
+  //     {/* Actions */}
+  //     <div className="flex gap-2">
+  //       <Button
+  //         variant="destructive"
+  //         onClick={clearWeek}
+  //         disabled={readOnlyWeek}
+  //       >
+  //         Clear week
+  //       </Button>
+
+  //       <Button className="flex-1" disabled={!canSubmit} onClick={handleSubmit}>
+  //         Submit
+  //       </Button>
+  //     </div>
+  //   </div>
+  // );
 }
