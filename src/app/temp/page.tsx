@@ -1,4 +1,4 @@
-import HomeClient from "@/app/HomeClient";
+import HomeClient from "@/app/temp/client";
 
 async function getFrameworks(reload?: boolean) {
   // Use an absolute URL on the server. Prefer an env like NEXT_PUBLIC_BASE_URL in prod.

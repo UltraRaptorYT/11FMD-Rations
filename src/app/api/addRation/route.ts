@@ -17,8 +17,8 @@ const sheets = google.sheets({ version: "v4", auth });
 const SHEET_ID = process.env.RATION_SHEET_ID!;
 const SHEET_NAME = process.env.RATIONS_SHEET_NAME!;
 
-const WRITE_COLS_START = "B";
-const WRITE_COLS_END = "K";
+const WRITE_COLS_START = "C";
+const WRITE_COLS_END = "L";
 function startOfWeekMonday(iso: string) {
   const d = fromISO(iso);
   d.setHours(0, 0, 0, 0);
@@ -32,25 +32,25 @@ function keyOf(weekStart: string, date: string, name: string) {
   return `${weekStart}|${date}|${name}`;
 }
 
-async function appendRowsAtB(
+async function appendRowsAtC(
   spreadsheetId: string,
   sheetName: string,
-  rowsBtoK: (string | number)[][],
+  rowsCtoL: (string | number)[][],
 ) {
-  if (rowsBtoK.length === 0) return;
+  if (rowsCtoL.length === 0) return;
 
-  // Find next empty row by looking at column B (week_start)
-  const colB = await sheets.spreadsheets.values.get({
+  // Find next empty row by looking at column (week_start)
+  const colC = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${sheetName}!B2:B`,
+    range: `${sheetName}!${WRITE_COLS_START}2:${WRITE_COLS_START}`,
   });
 
-  const existingCount = (colB.data.values ?? []).length;
-  const startRow = existingCount + 2; // because B2 is first data row
+  const existingCount = (colC.data.values ?? []).length;
+  const startRow = existingCount + 2; // because C2 is first data row
 
-  // Write each row into its exact B..K target range
-  const data = rowsBtoK.map((row, i) => ({
-    range: `${sheetName}!B${startRow + i}:K${startRow + i}`,
+  // Write each row into its exact C..L target range
+  const data = rowsCtoL.map((row, i) => ({
+    range: `${sheetName}!${WRITE_COLS_START}${startRow + i}:${WRITE_COLS_END}${startRow + i}`,
     values: [row],
   }));
 
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
     const nowIso = new Date().toISOString();
 
     // Build desired rows for Mon–Fri
-    // Each row is B..K (10 cols)
+    // Each row is C..L (10 cols)
     // [week_start, date, name, ration_type, B, L, D, status, submitted_at, updated_at]
     const desiredByKey = new Map<string, (string | number)[]>();
 
@@ -114,26 +114,26 @@ export async function POST(request: Request) {
       const status = hasAnyMeal ? "ACTIVE" : "CANCELLED";
 
       const row: (string | number)[] = [
-        weekStart, // B
-        dateISO, // C
-        name, // D
-        rationType, // E
-        b, // F
-        l, // G
-        din, // H
-        status, // I
-        nowIso, // J (submitted_at)
-        nowIso, // K (updated_at)
+        weekStart, // C
+        dateISO, // D
+        name, // E
+        rationType, // F
+        b, // G
+        l, // H
+        din, // I
+        status, // J
+        nowIso, // K (submitted_at)
+        nowIso, // L (updated_at)
       ];
 
       desiredByKey.set(keyOf(weekStart, dateISO, name), row);
     }
 
     // 1) Read existing rows to find upserts
-    // Read B2:D (week_start,date,name) to locate matching keys and row numbers
+    // Read C2:E (week_start,date,name) to locate matching keys and row numbers
     const readRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `${SHEET_NAME}!B2:D`,
+      range: `${SHEET_NAME}!${WRITE_COLS_START}2:E`,
     });
 
     const existing = (readRes.data.values ?? []) as string[][];
@@ -183,7 +183,7 @@ export async function POST(request: Request) {
 
     // 4) Append new rows (B..K only; A booking_id is formula)
     if (appendValues.length > 0) {
-      await appendRowsAtB(SHEET_ID, SHEET_NAME, appendValues);
+      await appendRowsAtC(SHEET_ID, SHEET_NAME, appendValues);
     }
 
     return NextResponse.json(

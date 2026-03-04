@@ -430,14 +430,6 @@ export default function WeeklyRationPlanner({
             >
               This week
             </Button>
-            <Button
-              variant="outline"
-              onClick={goToCurrentBookingWeek}
-              disabled={weekStart === minWeekStartISO}
-              title="Jump to earliest editable week"
-            >
-              Booking Now
-            </Button>
           </div>
 
           {/* Week nav */}
