@@ -28,6 +28,7 @@ type DayBooking = {
   name: string;
   rationType: string;
   meals: { B: boolean; L: boolean; D: boolean };
+  status: "active" | "cancelled";
 };
 
 export async function GET(request: Request) {
@@ -48,6 +49,9 @@ export async function GET(request: Request) {
       days[date] = [];
     }
 
+    // Track all names that appear for this week (submitted something)
+    const submittedNames = new Set<string>();
+
     // Read sheet — same column layout as getAllRations
     // C week_start, D date, E name, F ration_type, G B, H L, I D, J status, K submitted_at, L updated_at
     const res = await sheets.spreadsheets.values.get({
@@ -65,15 +69,17 @@ export async function GET(request: Request) {
       const b = r?.[4]; // G
       const l = r?.[5]; // H
       const d = r?.[6]; // I
-      const status = (r?.[7] ?? "").toString().trim().toUpperCase(); // J
+      const rawStatus = (r?.[7] ?? "").toString().trim().toUpperCase(); // J
 
       if (!rowWeekStart || !rowDate || !rowName) continue;
       if (rowWeekStart !== weekStart) continue;
       if (!days[rowDate]) continue; // not Mon–Fri of this week
 
-      const isActive = status ? status !== "CANCELLED" : true;
-      if (!isActive) continue;
+      submittedNames.add(rowName);
 
+      console.log(rowName);
+
+      const isCancelled = rawStatus === "CANCELLED";
       const Bsel = toBool01(b);
       const Lsel = toBool01(l);
       const Dsel = toBool01(d);
@@ -84,7 +90,10 @@ export async function GET(request: Request) {
       days[rowDate].push({
         name: rowName,
         rationType: rowRationType,
-        meals: { B: Bsel, L: Lsel, D: Dsel },
+        meals: isCancelled
+          ? { B: false, L: false, D: false }
+          : { B: Bsel, L: Lsel, D: Dsel },
+        status: isCancelled ? "cancelled" : "active",
       });
     }
 
@@ -93,6 +102,7 @@ export async function GET(request: Request) {
         ok: true,
         weekStart,
         days,
+        submittedNames: Array.from(submittedNames),
       },
       { status: 200 },
     );

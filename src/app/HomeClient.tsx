@@ -426,6 +426,7 @@ type AdminBooking = {
   name: string;
   rationType: string;
   meals: { B: boolean; L: boolean; D: boolean };
+  status: "active" | "cancelled";
 };
 
 type AdminDayData = {
@@ -445,6 +446,7 @@ function AdminView({ namelist }: { namelist: string[] }) {
   const [adminData, setAdminData] = useState<Record<string, AdminBooking[]>>(
     {},
   );
+  const [submittedNames, setSubmittedNames] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const selectedWeekStart = useMemo(
@@ -470,6 +472,7 @@ function AdminView({ namelist }: { namelist: string[] }) {
         const data = await res.json();
         if (!cancelled && data?.days) {
           setAdminData(data.days);
+          setSubmittedNames(data.submittedNames ?? []);
         }
       } catch (e) {
         console.error("[AdminView] fetch error:", e);
@@ -497,9 +500,11 @@ function AdminView({ namelist }: { namelist: string[] }) {
     setSelectedDate(toISO(next));
   };
 
-  // Day-level stats
+  // Day-level stats (active bookings only)
   const dayStats = useMemo(() => {
-    const bookings = adminData[selectedDate] || [];
+    const allBookings = adminData[selectedDate] || [];
+    const active = allBookings.filter((b) => b.status === "active");
+    const cancelled = allBookings.filter((b) => b.status === "cancelled");
     const byType: Record<
       string,
       { count: number; B: number; L: number; D: number }
@@ -507,7 +512,7 @@ function AdminView({ namelist }: { namelist: string[] }) {
     for (const o of RATION_OPTIONS) {
       byType[o.value] = { count: 0, B: 0, L: 0, D: 0 };
     }
-    for (const b of bookings) {
+    for (const b of active) {
       if (!byType[b.rationType]) {
         byType[b.rationType] = { count: 0, B: 0, L: 0, D: 0 };
       }
@@ -516,29 +521,24 @@ function AdminView({ namelist }: { namelist: string[] }) {
       if (b.meals.L) byType[b.rationType].L++;
       if (b.meals.D) byType[b.rationType].D++;
     }
-    return { total: bookings.length, byType, bookings };
+    return { total: active.length, byType, active, cancelled };
   }, [adminData, selectedDate]);
 
-  // Booked vs not-booked names for the selected day
-  const bookedNames = useMemo(() => {
-    return dayStats.bookings.map((b) => b.name);
-  }, [dayStats.bookings]);
+  // Week-level: who submitted vs who didn't
+  const notSubmittedNames = useMemo(() => {
+    const submitted = new Set(submittedNames);
+    return namelist.filter((n) => !submitted.has(n));
+  }, [namelist, submittedNames]);
 
-  const notBookedNames = useMemo(() => {
-    const booked = new Set(bookedNames);
-    return namelist.filter((n) => !booked.has(n));
-  }, [namelist, bookedNames]);
-
-  const [copiedList, setCopiedList] = useState<"booked" | "notBooked" | null>(
-    null,
-  );
+  type CopyTarget = "submitted" | "notSubmitted" | "cancelled";
+  const [copiedList, setCopiedList] = useState<CopyTarget | null>(null);
 
   // Reset copy state on date change
   useEffect(() => {
     setCopiedList(null);
   }, [selectedDate]);
 
-  const copyNames = async (names: string[], which: "booked" | "notBooked") => {
+  const copyNames = async (names: string[], which: CopyTarget) => {
     try {
       await navigator.clipboard.writeText(names.join("\n"));
       setCopiedList(which);
@@ -554,15 +554,16 @@ function AdminView({ namelist }: { namelist: string[] }) {
     const result: AdminDayData[] = [];
     for (let i = 0; i < 5; i++) {
       const iso = toISO(addDaysLocal(ws, i));
-      const bookings = adminData[iso] || [];
+      const allBookings = adminData[iso] || [];
+      const active = allBookings.filter((b) => b.status === "active");
       result.push({
         iso,
         label: fromISO(iso).toLocaleDateString("en-GB", { weekday: "short" }),
-        bookings,
-        total: bookings.length,
-        B: bookings.filter((b) => b.meals.B).length,
-        L: bookings.filter((b) => b.meals.L).length,
-        D: bookings.filter((b) => b.meals.D).length,
+        bookings: active,
+        total: active.length,
+        B: active.filter((b) => b.meals.B).length,
+        L: active.filter((b) => b.meals.L).length,
+        D: active.filter((b) => b.meals.D).length,
       });
     }
     return result;
@@ -665,7 +666,7 @@ function AdminView({ namelist }: { namelist: string[] }) {
             </div>
             <div className="flex justify-center gap-6 mt-3">
               {MEALS.map((m) => {
-                const count = dayStats.bookings.filter(
+                const count = dayStats.active.filter(
                   (b) => b.meals[m.key],
                 ).length;
                 return (
@@ -749,7 +750,7 @@ function AdminView({ namelist }: { namelist: string[] }) {
             </div>
           )}
 
-          {/* Booked list */}
+          {/* Submitted (active) list */}
           <div className="space-y-1">
             <div className="flex items-center justify-between px-1 mb-2">
               <div className="flex items-center gap-2">
@@ -757,30 +758,35 @@ function AdminView({ namelist }: { namelist: string[] }) {
                   className="text-xs font-semibold tracking-wider uppercase"
                   style={{ color: "#666" }}
                 >
-                  Booked
+                  Submitted
                 </div>
                 <span
                   className="text-xs font-bold px-1.5 py-0.5 rounded"
                   style={{ backgroundColor: "#1a1812", color: "#c8a97e" }}
                 >
-                  {bookedNames.length}
+                  {dayStats.active.length}
                 </span>
               </div>
-              {bookedNames.length > 0 && (
+              {dayStats.active.length > 0 && (
                 <Button
                   variant="outline"
                   className="text-[10px] h-7 px-2.5"
                   style={{
                     border: "1px solid #2a2a2a",
-                    color: copiedList === "booked" ? "#4ade80" : "#999",
+                    color: copiedList === "submitted" ? "#4ade80" : "#999",
                   }}
-                  onClick={() => copyNames(bookedNames, "booked")}
+                  onClick={() =>
+                    copyNames(
+                      dayStats.active.map((b) => b.name),
+                      "submitted",
+                    )
+                  }
                 >
-                  {copiedList === "booked" ? "Copied!" : "Copy names"}
+                  {copiedList === "submitted" ? "Copied!" : "Copy names"}
                 </Button>
               )}
             </div>
-            {bookedNames.length === 0 && !isLoading ? (
+            {dayStats.active.length === 0 && !isLoading ? (
               <div
                 className="rounded-lg px-4 py-3 text-center"
                 style={{
@@ -789,11 +795,11 @@ function AdminView({ namelist }: { namelist: string[] }) {
                 }}
               >
                 <span className="text-xs" style={{ color: "#555" }}>
-                  No bookings for this day
+                  No active bookings for this day
                 </span>
               </div>
             ) : (
-              dayStats.bookings.map((b, i) => {
+              dayStats.active.map((b, i) => {
                 const rt = RATION_OPTIONS.find((o) => o.value === b.rationType);
                 return (
                   <div
@@ -834,7 +840,68 @@ function AdminView({ namelist }: { namelist: string[] }) {
             )}
           </div>
 
-          {/* Not booked list */}
+          {/* Cancelled list */}
+          {dayStats.cancelled.length > 0 && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between px-1 mb-2">
+                <div className="flex items-center gap-2">
+                  <div
+                    className="text-xs font-semibold tracking-wider uppercase"
+                    style={{ color: "#666" }}
+                  >
+                    Cancelled
+                  </div>
+                  <span
+                    className="text-xs font-bold px-1.5 py-0.5 rounded"
+                    style={{ backgroundColor: "#1a1511", color: "#f59e0b" }}
+                  >
+                    {dayStats.cancelled.length}
+                  </span>
+                </div>
+                <Button
+                  variant="outline"
+                  className="text-[10px] h-7 px-2.5"
+                  style={{
+                    border: "1px solid #2a2a2a",
+                    color: copiedList === "cancelled" ? "#4ade80" : "#999",
+                  }}
+                  onClick={() =>
+                    copyNames(
+                      dayStats.cancelled.map((b) => b.name),
+                      "cancelled",
+                    )
+                  }
+                >
+                  {copiedList === "cancelled" ? "Copied!" : "Copy names"}
+                </Button>
+              </div>
+              {dayStats.cancelled.map((b, i) => (
+                <div
+                  key={`cancelled-${b.name}-${i}`}
+                  className="flex items-center rounded-lg px-4 py-2.5"
+                  style={{
+                    backgroundColor: "#131313",
+                    border: "1px solid #1a1a1a",
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-1.5 h-1.5 rounded-full"
+                      style={{ backgroundColor: "#f59e0b66" }}
+                    />
+                    <span
+                      className="text-xs font-medium"
+                      style={{ color: "#999" }}
+                    >
+                      {b.name}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Not submitted list */}
           <div className="space-y-1">
             <div className="flex items-center justify-between px-1 mb-2">
               <div className="flex items-center gap-2">
@@ -842,30 +909,30 @@ function AdminView({ namelist }: { namelist: string[] }) {
                   className="text-xs font-semibold tracking-wider uppercase"
                   style={{ color: "#666" }}
                 >
-                  Not Booked
+                  Not Submitted
                 </div>
                 <span
                   className="text-xs font-bold px-1.5 py-0.5 rounded"
                   style={{ backgroundColor: "#1a1111", color: "#ef4444" }}
                 >
-                  {notBookedNames.length}
+                  {notSubmittedNames.length}
                 </span>
               </div>
-              {notBookedNames.length > 0 && (
+              {notSubmittedNames.length > 0 && (
                 <Button
                   variant="outline"
                   className="text-[10px] h-7 px-2.5"
                   style={{
                     border: "1px solid #2a2a2a",
-                    color: copiedList === "notBooked" ? "#4ade80" : "#999",
+                    color: copiedList === "notSubmitted" ? "#4ade80" : "#999",
                   }}
-                  onClick={() => copyNames(notBookedNames, "notBooked")}
+                  onClick={() => copyNames(notSubmittedNames, "notSubmitted")}
                 >
-                  {copiedList === "notBooked" ? "Copied!" : "Copy names"}
+                  {copiedList === "notSubmitted" ? "Copied!" : "Copy names"}
                 </Button>
               )}
             </div>
-            {notBookedNames.length === 0 ? (
+            {notSubmittedNames.length === 0 ? (
               <div
                 className="rounded-lg px-4 py-3 text-center"
                 style={{
@@ -874,11 +941,11 @@ function AdminView({ namelist }: { namelist: string[] }) {
                 }}
               >
                 <span className="text-xs" style={{ color: "#4ade80" }}>
-                  Everyone has booked!
+                  Everyone has submitted!
                 </span>
               </div>
             ) : (
-              notBookedNames.map((name) => (
+              notSubmittedNames.map((name) => (
                 <div
                   key={name}
                   className="flex items-center rounded-lg px-4 py-2.5"
@@ -1722,7 +1789,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                                           }
                                     }
                                   >
-                                    {m.label}
+                                    {m.label.charAt(0)}
                                   </Button>
                                 ))}
                               </div>
