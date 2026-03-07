@@ -1,12 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { createSgidClient } from "../route";
+import { getBaseUrl } from "@/lib/get-base-url";
 
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
-  const base =
-    process.env.VERCEL_PROJECT_PRODUCTION_URL || "http://localhost:3000";
+  const base = getBaseUrl() || "http://localhost:3000";
   const code = request.nextUrl.searchParams.get("code");
 
   if (!code) {
