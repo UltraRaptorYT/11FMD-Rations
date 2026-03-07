@@ -4,6 +4,8 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "sonner";
 
+const UNIT = process.env.NEXT_PUBLIC_UNIT || "Unit";
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -15,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "11 FMD Rations Declaration",
-  description: "Rations Declaration",
+  title: `${UNIT} Rations Planner`,
+  description: "Rations Planner",
 };
 
 export default function RootLayout({
@@ -36,7 +38,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           {children}
-          <Toaster richColors position="top-center"/>
+          <Toaster richColors position="top-center" />
         </ThemeProvider>
       </body>
     </html>

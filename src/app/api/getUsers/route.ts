@@ -68,9 +68,9 @@ export async function GET(request: Request) {
       { status: 200 },
     );
   } catch (err) {
-    console.error("GET RSVP Error:", err);
+    console.error("GET users Error:", err);
     return NextResponse.json(
-      { error: "Failed to fetch RSVP" },
+      { error: "Failed to fetch users" },
       { status: 500 },
     );
   }
