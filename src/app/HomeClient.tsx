@@ -13,6 +13,9 @@ import {
 import Pill from "@/components/Pill";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { useAuth } from "@/hooks/useAuth"; // CHANGED 1: added import
+
+const AUTH_MODE = process.env.NEXT_PUBLIC_AUTH_MODE || "none"; // CHANGED 2: added constant
 
 const MEALS: { key: Meal; label: string }[] = [
   { key: "B", label: "Breakfast" },
@@ -62,7 +65,10 @@ function isPastDateLocked(dateISO: string) {
 }
 
 function getMinBookableWeekStartISO() {
-  const lead = addDaysLocal(startOfDayLocal(), 21);
+  const lead = addDaysLocal(
+    startOfDayLocal(),
+    Number(process.env.NEXT_PUBLIC_LEAD_TIME) * 7 + 4,
+  );
   return toISO(startOfWeekMonday(lead));
 }
 
@@ -125,7 +131,6 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
     year: "numeric",
   });
 
-  // Derive bookings for this month from serverCache
   const monthBookings = useMemo(() => {
     const result: Record<number, MonthlyBooking> = {};
 
@@ -166,17 +171,15 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
     };
   }, [monthBookings]);
 
-  // Build weekday-only grid: 5 columns (Mon–Fri), grouped by week rows
   const weekdayGrid = useMemo(() => {
     const weeks: { dayNum: number; date: Date }[][] = [];
     let currentWeek: { dayNum: number; date: Date }[] = [];
 
     for (let d = 1; d <= daysInMonth; d++) {
       const date = new Date(viewYear, viewMonth, d);
-      const dow = date.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-      if (dow === 0 || dow === 6) continue; // skip weekends
+      const dow = date.getDay();
+      if (dow === 0 || dow === 6) continue;
 
-      // Start a new row on Monday
       if (dow === 1 && currentWeek.length > 0) {
         weeks.push(currentWeek);
         currentWeek = [];
@@ -201,7 +204,6 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
 
   return (
     <div className="space-y-5">
-      {/* Month nav */}
       <div className="flex items-center justify-between">
         <Button
           variant="outline"
@@ -220,7 +222,6 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
         </Button>
       </div>
 
-      {/* Stats summary */}
       <div className="grid grid-cols-4 gap-2">
         {[
           { label: "Days", value: stats.days, color: "#c8a97e" },
@@ -249,7 +250,6 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
         ))}
       </div>
 
-      {/* Calendar grid — weekdays only */}
       <div
         className="rounded-2xl p-4"
         style={{ backgroundColor: "#131313", border: "1px solid #222" }}
@@ -266,11 +266,9 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
           ))}
         </div>
         {weekdayGrid.map((week, wi) => {
-          // Pad the first week if it doesn't start on Monday
-          const firstDow = week[0].date.getDay(); // 1=Mon
-          const padBefore = firstDow - 1; // 0 if Monday, 1 if Tue, etc.
-          // Pad the last week if it doesn't end on Friday
-          const lastDow = week[week.length - 1].date.getDay(); // 5=Fri
+          const firstDow = week[0].date.getDay();
+          const padBefore = firstDow - 1;
+          const lastDow = week[week.length - 1].date.getDay();
           const padAfter = 5 - lastDow;
 
           return (
@@ -330,7 +328,6 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
         })}
       </div>
 
-      {/* Legend */}
       <div
         className="flex items-center justify-center gap-6 text-xs"
         style={{ color: "#666" }}
@@ -351,7 +348,6 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
         </span>
       </div>
 
-      {/* Booked days list */}
       <div className="space-y-1.5">
         {Object.keys(monthBookings).length === 0 ? (
           <div
@@ -454,7 +450,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
     [selectedDate],
   );
 
-  // Fetch admin data when week changes
   useEffect(() => {
     let cancelled = false;
 
@@ -491,7 +486,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
     const unit = viewMode === "day" ? 1 : 7;
     const d = fromISO(selectedDate);
     const next = addDaysLocal(d, delta * unit);
-    // Skip weekends when navigating by day
     if (viewMode === "day") {
       const dow = next.getDay();
       if (dow === 0) next.setDate(next.getDate() + (delta > 0 ? 1 : -2));
@@ -500,7 +494,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
     setSelectedDate(toISO(next));
   };
 
-  // Day-level stats (active bookings only)
   const dayStats = useMemo(() => {
     const allBookings = adminData[selectedDate] || [];
     const active = allBookings.filter((b) => b.status === "active");
@@ -524,7 +517,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
     return { total: active.length, byType, active, cancelled };
   }, [adminData, selectedDate]);
 
-  // Week-level: who submitted vs who didn't
   const notSubmittedNames = useMemo(() => {
     const submitted = new Set(submittedNames);
     return namelist.filter((n) => !submitted.has(n));
@@ -533,7 +525,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
   type CopyTarget = "submitted" | "notSubmitted" | "cancelled";
   const [copiedList, setCopiedList] = useState<CopyTarget | null>(null);
 
-  // Reset copy state on date change
   useEffect(() => {
     setCopiedList(null);
   }, [selectedDate]);
@@ -548,7 +539,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
     }
   };
 
-  // Week-level stats
   const weekDays = useMemo((): AdminDayData[] => {
     const ws = fromISO(selectedWeekStart);
     const result: AdminDayData[] = [];
@@ -598,7 +588,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
 
   return (
     <div className="space-y-5">
-      {/* View mode toggle */}
       <div
         className="flex gap-1 p-1 rounded-xl"
         style={{ backgroundColor: "#1a1a1a" }}
@@ -622,7 +611,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
         ))}
       </div>
 
-      {/* Date nav */}
       <div className="flex items-center justify-between">
         <Button
           variant="outline"
@@ -650,7 +638,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
 
       {viewMode === "day" ? (
         <>
-          {/* Total headcount */}
           <div
             className="rounded-2xl p-5 text-center"
             style={{ backgroundColor: "#161616", border: "1px solid #222" }}
@@ -684,7 +671,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
             </div>
           </div>
 
-          {/* By ration type */}
           {dayStats.total > 0 && (
             <div className="space-y-2">
               <div
@@ -750,7 +736,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
             </div>
           )}
 
-          {/* Submitted (active) list */}
           <div className="space-y-1">
             <div className="flex items-center justify-between px-1 mb-2">
               <div className="flex items-center gap-2">
@@ -840,7 +825,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
             )}
           </div>
 
-          {/* Cancelled list */}
           {dayStats.cancelled.length > 0 && (
             <div className="space-y-1">
               <div className="flex items-center justify-between px-1 mb-2">
@@ -901,7 +885,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
             </div>
           )}
 
-          {/* Not submitted list */}
           <div className="space-y-1">
             <div className="flex items-center justify-between px-1 mb-2">
               <div className="flex items-center gap-2">
@@ -973,7 +956,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
         </>
       ) : (
         <>
-          {/* Week totals */}
           <div
             className="rounded-2xl p-5 text-center"
             style={{ backgroundColor: "#161616", border: "1px solid #222" }}
@@ -1006,13 +988,9 @@ function AdminView({ namelist }: { namelist: string[] }) {
             </div>
           </div>
 
-          {/* Bar chart */}
           <div
             className="rounded-2xl p-5"
-            style={{
-              backgroundColor: "#131313",
-              border: "1px solid #1e1e1e",
-            }}
+            style={{ backgroundColor: "#131313", border: "1px solid #1e1e1e" }}
           >
             <div
               className="flex items-end justify-between gap-3"
@@ -1052,7 +1030,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
             </div>
           </div>
 
-          {/* Per day breakdown */}
           <div className="space-y-2">
             {weekDays.map((day) => (
               <button
@@ -1100,6 +1077,7 @@ function AdminView({ namelist }: { namelist: string[] }) {
 }
 
 export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
+  const auth = useAuth(); // CHANGED 3: added auth hook
   const baseKey = "rationDetails";
   const nameKey = `${baseKey}:name`;
   const rationKey = `${baseKey}:rationType`;
@@ -1120,7 +1098,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
 
   const readOnlyWeek = weekStart < minWeekStartISO;
 
-  // --------- Unsaved-change guard (per-week) ---------
   const submittedKey = `${baseKey}:weekSubmitted:${weekStart}`;
   const submittedRationKey = `${baseKey}:weekSubmittedRation:${weekStart}`;
 
@@ -1149,12 +1126,10 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     [plan, stableStringify],
   );
 
-  // Check if no days have rations enabled
   const hasAnyRation = useMemo(() => {
     return Object.values(plan.days).some((d) => d.enabled);
   }, [plan.days]);
 
-  // Check if any enabled day has zero meals selected
   const enabledDaysWithNoMeals = useMemo(() => {
     const bad: string[] = [];
     for (const [dateISO, day] of Object.entries(plan.days)) {
@@ -1167,7 +1142,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
 
   const hasIncompleteDays = enabledDaysWithNoMeals.length > 0;
 
-  // Detect if this week was previously submitted with no rations
   const submittedWithNoRation = useMemo(() => {
     if (!submittedFingerprint) return false;
     try {
@@ -1179,10 +1153,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
   }, [submittedFingerprint]);
 
   const hasUnsavedChanges = useMemo(() => {
-    // Ration type changed from what was submitted
     if (submittedRationType && rationType !== submittedRationType) return true;
-
-    // If nothing submitted yet, treat as unsaved only when user has made any selection
     if (!submittedFingerprint) {
       for (const dateISO of Object.keys(plan.days)) {
         const d = plan.days[dateISO];
@@ -1200,10 +1171,8 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     plan.days,
   ]);
 
-  // Track whether user explicitly confirmed "no rations" for this week
   const [noRationConfirmed, setNoRationConfirmed] = useState(false);
 
-  // Reset confirmation when week changes or when user toggles a day on
   useEffect(() => {
     setNoRationConfirmed(false);
   }, [weekStart]);
@@ -1226,24 +1195,30 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     fn();
   };
 
-  // --------- Server cache: bulk-fetched data per name ---------
   const cacheKey = `${baseKey}:serverCache:${name.trim()}`;
   const [serverCache, setServerCache] = useState<
     Record<string, { rationType: string | null; plan: WeekPlan }>
   >({});
   const [isFetching, setIsFetching] = useState(false);
 
-  // Load identity
+  // CHANGED 4: Load identity — respects AUTH_MODE
   useEffect(() => {
+    if (AUTH_MODE !== "none" && auth.name) {
+      setName(auth.name);
+    } else if (AUTH_MODE === "none") {
+      try {
+        setName(localStorage.getItem(nameKey) ?? "");
+      } catch {}
+    }
     try {
-      setName(localStorage.getItem(nameKey) ?? "");
       setRationType((localStorage.getItem(rationKey) as RationType) ?? "");
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [auth.name]);
 
-  // Persist identity
+  // CHANGED 5: Only persist name in none mode
   useEffect(() => {
+    if (AUTH_MODE !== "none") return;
     try {
       if (name) localStorage.setItem(nameKey, name);
       else localStorage.removeItem(nameKey);
@@ -1257,7 +1232,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     } catch {}
   }, [rationType, rationKey]);
 
-  // Bulk fetch all rations when name changes
   useEffect(() => {
     if (!name.trim()) {
       setServerCache({});
@@ -1267,7 +1241,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     let cancelled = false;
 
     async function fetchAll() {
-      // Try loading from localStorage cache first (instant UI)
       try {
         const cached = localStorage.getItem(cacheKey);
         if (cached) {
@@ -1278,7 +1251,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
         console.warn("[RationPlanner] localStorage cache read failed:", e);
       }
 
-      // Then fetch fresh from server
       setIsFetching(true);
       try {
         const qs = new URLSearchParams({ name: name.trim() });
@@ -1302,12 +1274,10 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
 
           setServerCache(weeks);
 
-          // Persist to localStorage
           try {
             localStorage.setItem(cacheKey, JSON.stringify(weeks));
           } catch {}
 
-          // Hydrate ration type from any week if not yet set
           if (!rationType) {
             for (const entry of Object.values(weeks)) {
               if (entry.rationType) {
@@ -1317,7 +1287,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
             }
           }
 
-          // Populate submitted fingerprints for all fetched weeks
           for (const [ws, entry] of Object.entries(weeks)) {
             try {
               const subKey = `${baseKey}:weekSubmitted:${ws}`;
@@ -1345,18 +1314,13 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     return () => {
       cancelled = true;
     };
-    // Only re-fetch when name changes, not rationType
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, cacheKey]);
 
-  // Load plan from cache when weekStart changes (no API call)
   useEffect(() => {
     const cached = serverCache[weekStart];
     if (cached?.plan?.days) {
-      // Server data exists for this week — use it as baseline
       setPlan(cached.plan);
-
-      // Sync submitted fingerprint
       try {
         localStorage.setItem(submittedKey, JSON.stringify(cached.plan));
         setSubmittedFingerprint(JSON.stringify(cached.plan));
@@ -1366,21 +1330,17 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
         }
       } catch {}
     } else {
-      // No server data — check for a local draft, else blank week
       try {
         const raw = localStorage.getItem(draftKey);
         setPlan(normalizeOrRebuildDraft(raw, weekStart));
       } catch {
         setPlan(buildDefaultWeek(weekStart));
       }
-
-      // Reset submitted state (nothing on server)
       setSubmittedFingerprint("");
       setSubmittedRationType("");
     }
   }, [weekStart, serverCache, draftKey, submittedKey, submittedRationKey]);
 
-  // Persist week draft
   useEffect(() => {
     try {
       localStorage.setItem(draftKey, JSON.stringify(plan));
@@ -1396,7 +1356,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
   const setDayEnabled = (dateISO: string, enabled: boolean) => {
     if (readOnlyWeek) return;
     if (isPastDateLocked(dateISO)) return;
-
     setPlan((prev) => {
       const next = structuredClone(prev);
       next.days[dateISO].enabled = enabled;
@@ -1408,7 +1367,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
   const toggleMeal = (dateISO: string, meal: Meal) => {
     if (readOnlyWeek) return;
     if (isPastDateLocked(dateISO)) return;
-
     setPlan((prev) => {
       const next = structuredClone(prev);
       const day = next.days[dateISO];
@@ -1427,7 +1385,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
   const goToCurrentBookingWeek = () =>
     guardNavigate(() => setWeekStart(minWeekStartISO));
 
-  // canSubmit: allow when there are changes AND no incomplete days
   const canSubmit =
     !readOnlyWeek &&
     Boolean(name.trim()) &&
@@ -1436,7 +1393,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     (hasUnsavedChanges || noRationConfirmed);
 
   const handleSubmit = async () => {
-    // Extra guard: surface which days are incomplete
     if (hasIncompleteDays) {
       const labels = enabledDaysWithNoMeals
         .map((iso) =>
@@ -1452,7 +1408,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
       });
       return;
     }
-
     if (!canSubmit) return;
 
     try {
@@ -1475,14 +1430,12 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
         return;
       }
 
-      // Mark submitted (plan + ration type)
       localStorage.setItem(submittedKey, JSON.stringify(plan));
       setSubmittedFingerprint(JSON.stringify(plan));
       localStorage.setItem(submittedRationKey, rationType);
       setSubmittedRationType(rationType);
       setNoRationConfirmed(false);
 
-      // Update local server cache so week nav stays in sync
       setServerCache((prev) => {
         const next = { ...prev };
         next[plan.weekStart] = {
@@ -1511,15 +1464,69 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     n.toLowerCase().includes(nameSearch.toLowerCase()),
   );
 
+  // ── CHANGED 6: Login gate — only when AUTH_MODE=sgid ──────────
+  if (AUTH_MODE !== "none" && auth.isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[300px]">
+        <p className="text-sm" style={{ color: "#666" }}>
+          Loading...
+        </p>
+      </div>
+    );
+  }
+
+  if (AUTH_MODE !== "none" && !auth.isAuthenticated) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-6 max-w-md mx-auto text-center">
+        <div className="space-y-2">
+          <h1 className="text-xl font-bold text-white tracking-tight">
+            Ration Planner
+          </h1>
+          <p className="text-xs" style={{ color: "#555" }}>
+            Book and manage your weekly rations
+          </p>
+        </div>
+        <div
+          className="rounded-2xl p-8 space-y-4 w-full"
+          style={{ backgroundColor: "#161616", border: "1px solid #252525" }}
+        >
+          <p className="text-sm" style={{ color: "#999" }}>
+            Sign in with Singpass to get started.
+          </p>
+          <Button
+            className="w-full py-3 text-sm font-bold"
+            style={{
+              background: "linear-gradient(135deg, #c8a97e 0%, #a88a5e 100%)",
+              color: "#0a0a0a",
+            }}
+            onClick={auth.login}
+          >
+            Login with Singpass
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6 max-w-xl">
-      <div className="text-center space-y-1">
+      {/* CHANGED 7: Header with conditional logout button */}
+      <div className="text-center space-y-1 relative">
         <h1 className="text-xl font-bold text-white tracking-tight">
           Ration Planner
         </h1>
         <p className="text-xs" style={{ color: "#555" }}>
           Book and manage your weekly rations
         </p>
+        {AUTH_MODE !== "none" && (
+          <button
+            onClick={auth.logout}
+            className="absolute right-0 top-0 text-[10px] font-medium px-2.5 py-1 rounded-lg transition-all hover:bg-white/5"
+            style={{ border: "1px solid #2a2a2a", color: "#666" }}
+          >
+            Logout
+          </button>
+        )}
       </div>
       <Tabs defaultValue="plan" className="w-full gap-6">
         <TabsList className="w-full group-data-[orientation=horizontal]/tabs:h-12">
@@ -1529,89 +1536,117 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
         </TabsList>
         <TabsContent value="plan" className="gap-6 flex flex-col">
           <div className="space-y-3 bg-muted p-4 rounded-lg">
+            {/* CHANGED 8: Conditional name section */}
             <div className="space-y-2 relative">
               <Label
                 className="text-xs font-semibold tracking-wider uppercase"
                 style={{ color: "#c8a97e" }}
               >
-                Your Name
+                {AUTH_MODE !== "none" ? "Logged in as" : "Your Name"}
               </Label>
-              <div
-                className="flex items-center rounded-xl px-4 py-3 cursor-pointer transition-colors"
-                style={{
-                  backgroundColor: "#0f0f0f",
-                  border: "1px solid #2a2a2a",
-                }}
-                onClick={() => setShowNameDropdown(!showNameDropdown)}
-              >
-                <span className="flex-1 text-sm font-medium text-white">
-                  {name || "Select name..."}
-                </span>
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 12 12"
-                  fill="none"
-                  className={`transition-transform ${showNameDropdown ? "rotate-180" : ""}`}
-                >
-                  <path
-                    d="M2 4L6 8L10 4"
-                    stroke="#666"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </div>
-              {showNameDropdown && (
+
+              {AUTH_MODE !== "none" ? (
+                /* sgID mode: static verified name */
                 <div
-                  className="absolute z-50 top-full left-0 right-0 mt-1 rounded-xl overflow-hidden shadow-2xl"
+                  className="flex items-center rounded-xl px-4 py-3"
                   style={{
-                    backgroundColor: "#1a1a1a",
+                    backgroundColor: "#0f0f0f",
                     border: "1px solid #2a2a2a",
                   }}
                 >
-                  <div className="p-2">
-                    <input
-                      type="text"
-                      value={nameSearch}
-                      onChange={(e) => setNameSearch(e.target.value)}
-                      placeholder="Search..."
-                      className="w-full px-3 py-2 rounded-lg text-sm text-white placeholder-neutral-600 outline-none"
-                      style={{
-                        backgroundColor: "#0f0f0f",
-                        border: "1px solid #333",
-                      }}
-                      autoFocus
-                    />
-                  </div>
-                  <div className="max-h-48 overflow-y-auto">
-                    {filteredNames.map((n) => (
-                      <button
-                        key={n}
-                        className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
-                          n === name
-                            ? "text-white"
-                            : "text-neutral-400 hover:text-white"
-                        }`}
-                        style={n === name ? { backgroundColor: "#252525" } : {}}
-                        onMouseOver={(e) =>
-                          (e.currentTarget.style.backgroundColor = "#222")
-                        }
-                        onMouseOut={(e) =>
-                          (e.currentTarget.style.backgroundColor =
-                            n === name ? "#252525" : "")
-                        }
-                        onClick={() => {
-                          setName(n);
-                          setShowNameDropdown(false);
-                          setNameSearch("");
-                        }}
-                      >
-                        {n}
-                      </button>
-                    ))}
-                  </div>
+                  <span className="flex-1 text-sm font-medium text-white">
+                    {name || "Loading..."}
+                  </span>
+                  <span
+                    className="text-[10px] px-2 py-0.5 rounded-full"
+                    style={{ backgroundColor: "#4ade8020", color: "#4ade80" }}
+                  >
+                    Verified
+                  </span>
                 </div>
+              ) : (
+                /* none mode: original dropdown (unchanged) */
+                <>
+                  <div
+                    className="flex items-center rounded-xl px-4 py-3 cursor-pointer transition-colors"
+                    style={{
+                      backgroundColor: "#0f0f0f",
+                      border: "1px solid #2a2a2a",
+                    }}
+                    onClick={() => setShowNameDropdown(!showNameDropdown)}
+                  >
+                    <span className="flex-1 text-sm font-medium text-white">
+                      {name || "Select name..."}
+                    </span>
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 12 12"
+                      fill="none"
+                      className={`transition-transform ${showNameDropdown ? "rotate-180" : ""}`}
+                    >
+                      <path
+                        d="M2 4L6 8L10 4"
+                        stroke="#666"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </div>
+                  {showNameDropdown && (
+                    <div
+                      className="absolute z-50 top-full left-0 right-0 mt-1 rounded-xl overflow-hidden shadow-2xl"
+                      style={{
+                        backgroundColor: "#1a1a1a",
+                        border: "1px solid #2a2a2a",
+                      }}
+                    >
+                      <div className="p-2">
+                        <input
+                          type="text"
+                          value={nameSearch}
+                          onChange={(e) => setNameSearch(e.target.value)}
+                          placeholder="Search..."
+                          className="w-full px-3 py-2 rounded-lg text-sm text-white placeholder-neutral-600 outline-none"
+                          style={{
+                            backgroundColor: "#0f0f0f",
+                            border: "1px solid #333",
+                          }}
+                          autoFocus
+                        />
+                      </div>
+                      <div className="max-h-48 overflow-y-auto">
+                        {filteredNames.map((n) => (
+                          <button
+                            key={n}
+                            className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                              n === name
+                                ? "text-white"
+                                : "text-neutral-400 hover:text-white"
+                            }`}
+                            style={
+                              n === name ? { backgroundColor: "#252525" } : {}
+                            }
+                            onMouseOver={(e) =>
+                              (e.currentTarget.style.backgroundColor = "#222")
+                            }
+                            onMouseOut={(e) =>
+                              (e.currentTarget.style.backgroundColor =
+                                n === name ? "#252525" : "")
+                            }
+                            onClick={() => {
+                              setName(n);
+                              setShowNameDropdown(false);
+                              setNameSearch("");
+                            }}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -1666,7 +1701,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                     year: "numeric",
                   })}
                   <div className="text-xs mt-0.5" style={{ color: "#666" }}>
-                    Mon-Fri · 2-week lead time
+                    Mon-Fri · 3-week lead time
                     <br />
                     {readOnlyWeek ? (
                       <span className="text-xs font-medium text-white">
@@ -1708,7 +1743,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                 </div>
               </div>
 
-              {/* Week grid */}
               <div className="space-y-3">
                 {dayKeys.map((dateISO) => {
                   const day = plan.days[dateISO];
@@ -1738,7 +1772,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                       }}
                     >
                       <div className="flex items-center gap-4">
-                        {/* Date badge */}
                         <div className="flex flex-col items-center min-w-[44px]">
                           <span
                             className="text-[10px] font-bold tracking-wider uppercase"
@@ -1764,7 +1797,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                           ) : null}
                         </div>
 
-                        {/* Meal toggles */}
                         <div className="flex-1 flex flex-col gap-2">
                           {day.enabled && (
                             <>
@@ -1805,7 +1837,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                           )}
                         </div>
 
-                        {/* Toggle button */}
                         <Button
                           onClick={() => setDayEnabled(dateISO, !day.enabled)}
                           className="relative w-12 h-7 rounded-full transition-all duration-300"
@@ -1830,7 +1861,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                 })}
               </div>
 
-              {/* No-ration status / acknowledgment banner */}
               {!hasAnyRation && !readOnlyWeek && (
                 <div
                   className="rounded-xl p-4 flex items-center justify-between"
@@ -1915,16 +1945,12 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                 </div>
               )}
 
-              {/* Actions */}
               <div className="flex gap-3">
                 <Button
                   onClick={clearWeek}
                   disabled={readOnlyWeek}
                   className="h-10 bg-[#1a1111] disabled:opacity-50 text-sm font-medium transition-all"
-                  style={{
-                    border: "1px solid #3d2020",
-                    color: "#e85555",
-                  }}
+                  style={{ border: "1px solid #3d2020", color: "#e85555" }}
                 >
                   Clear
                 </Button>
