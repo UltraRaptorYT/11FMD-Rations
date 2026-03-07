@@ -5,7 +5,8 @@ import { createSgidClient } from "../route";
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
-  const base = process.env.VERCEL_URL || "http://localhost:3000";
+  const base =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL || "http://localhost:3000";
   const code = request.nextUrl.searchParams.get("code");
 
   if (!code) {

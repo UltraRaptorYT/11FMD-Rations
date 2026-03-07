@@ -4,8 +4,8 @@ export function getBaseUrl() {
     return "http://localhost:3000";
   }
 
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
   }
 
   // optional fallback if you set your own env

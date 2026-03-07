@@ -2,7 +2,7 @@ import HomeClient from "@/app/HomeClient";
 import { getBaseUrl } from "@/lib/get-base-url";
 
 async function getFrameworks(reload?: boolean) {
-  // Use an absolute URL on the server. Prefer an env like VERCEL_URL in prod.
+  // Use an absolute URL on the server. Prefer an env like VERCEL_PROJECT_PRODUCTION_URL in prod.
   const baseUrl = getBaseUrl() ?? "http://localhost:3000";
   console.log(baseUrl);
   const url = new URL("/api/getUsers", baseUrl);
