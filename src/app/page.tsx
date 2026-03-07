@@ -1,8 +1,9 @@
 import HomeClient from "@/app/HomeClient";
+import { getBaseUrl } from "@/lib/get-base-url";
 
 async function getFrameworks(reload?: boolean) {
   // Use an absolute URL on the server. Prefer an env like VERCEL_URL in prod.
-  const baseUrl = process.env.VERCEL_URL ?? "http://localhost:3000";
+  const baseUrl = getBaseUrl() ?? "http://localhost:3000";
 
   const url = new URL("/api/getUsers", baseUrl);
   if (reload) url.searchParams.set("reload", "true");

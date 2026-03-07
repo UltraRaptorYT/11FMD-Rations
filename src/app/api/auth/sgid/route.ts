@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import SgidClient, { generatePkcePair } from "@opengovsg/sgid-client";
+import { getBaseUrl } from "@/lib/get-base-url";
 
 export const runtime = "nodejs";
 
@@ -8,7 +9,7 @@ export function createSgidClient() {
     clientId: process.env.SGID_CLIENT_ID!,
     clientSecret: process.env.SGID_CLIENT_SECRET!,
     privateKey: process.env.SGID_PRIVATE_KEY!,
-    redirectUri: `${process.env.VERCEL_URL}/api/auth/sgid/callback`,
+    redirectUri: `${getBaseUrl()}/api/auth/sgid/callback`,
   });
 }
 
