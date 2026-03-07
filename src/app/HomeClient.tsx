@@ -2,7 +2,7 @@
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, JSX } from "react";
 import type { Meal, RationType, DayPlan, WeekPlan } from "@/types";
 import {
   fromISO,
@@ -13,9 +13,12 @@ import {
 import Pill from "@/components/Pill";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { useAuth } from "@/hooks/useAuth"; // CHANGED 1: added import
+import { useAuth } from "@/hooks/useAuth";
 
-const AUTH_MODE = process.env.NEXT_PUBLIC_AUTH_MODE || "none"; // CHANGED 2: added constant
+const AUTH_MODE = process.env.NEXT_PUBLIC_AUTH_MODE || "none";
+const EDIT_MODE = process.env.NEXT_PUBLIC_EDIT_MODE || "self_only"; // FIX #3
+const CAN_EDIT_ANY = EDIT_MODE === "edit_any";
+const TRACK_EDITED_BY = AUTH_MODE !== "none" && CAN_EDIT_ANY;
 
 const MEALS: { key: Meal; label: string }[] = [
   { key: "B", label: "Breakfast" },
@@ -101,7 +104,7 @@ type WeeklyRationPlannerProps = {
   namelist: string[];
 };
 
-// ─── Monthly Overview ────────────────────────────────────────
+// ─── Monthly Overview (unchanged) ────────────────────────────
 type MonthlyOverviewProps = {
   serverCache: Record<string, { rationType: string | null; plan: WeekPlan }>;
   name: string;
@@ -133,7 +136,6 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
 
   const monthBookings = useMemo(() => {
     const result: Record<number, MonthlyBooking> = {};
-
     for (const entry of Object.values(serverCache)) {
       if (!entry.plan?.days) continue;
       for (const [dateISO, dayPlan] of Object.entries(entry.plan.days)) {
@@ -149,7 +151,6 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
         }
       }
     }
-
     return result;
   }, [serverCache, viewYear, viewMonth]);
 
@@ -174,21 +175,17 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
   const weekdayGrid = useMemo(() => {
     const weeks: { dayNum: number; date: Date }[][] = [];
     let currentWeek: { dayNum: number; date: Date }[] = [];
-
     for (let d = 1; d <= daysInMonth; d++) {
       const date = new Date(viewYear, viewMonth, d);
       const dow = date.getDay();
       if (dow === 0 || dow === 6) continue;
-
       if (dow === 1 && currentWeek.length > 0) {
         weeks.push(currentWeek);
         currentWeek = [];
       }
-
       currentWeek.push({ dayNum: d, date });
     }
     if (currentWeek.length > 0) weeks.push(currentWeek);
-
     return weeks;
   }, [viewYear, viewMonth, daysInMonth]);
 
@@ -232,10 +229,7 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
           <div
             key={stat.label}
             className="rounded-xl p-3 text-center"
-            style={{
-              backgroundColor: "#161616",
-              border: "1px solid #222",
-            }}
+            style={{ backgroundColor: "#161616", border: "1px solid #222" }}
           >
             <div className="text-2xl font-bold" style={{ color: stat.color }}>
               {stat.value}
@@ -266,15 +260,12 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
           ))}
         </div>
         {weekdayGrid.map((week, wi) => {
-          const firstDow = week[0].date.getDay();
-          const padBefore = firstDow - 1;
-          const lastDow = week[week.length - 1].date.getDay();
-          const padAfter = 5 - lastDow;
-
+          const padBefore = week[0].date.getDay() - 1;
+          const padAfter = 5 - week[week.length - 1].date.getDay();
           return (
             <div key={wi} className="grid grid-cols-5 gap-1">
               {Array.from({ length: padBefore }).map((_, i) => (
-                <div key={`pad-b-${wi}-${i}`} />
+                <div key={`pb-${wi}-${i}`} />
               ))}
               {week.map(({ dayNum, date }) => {
                 const booking = monthBookings[dayNum];
@@ -284,7 +275,6 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
                       Boolean,
                     ).length
                   : 0;
-
                 return (
                   <div
                     key={dayNum}
@@ -300,9 +290,7 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
                     }}
                   >
                     <span
-                      className={`text-sm font-medium ${
-                        booking ? "text-white" : "text-neutral-600"
-                      }`}
+                      className={`text-sm font-medium ${booking ? "text-white" : "text-neutral-600"}`}
                     >
                       {dayNum}
                     </span>
@@ -321,7 +309,7 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
                 );
               })}
               {Array.from({ length: padAfter }).map((_, i) => (
-                <div key={`pad-a-${wi}-${i}`} />
+                <div key={`pa-${wi}-${i}`} />
               ))}
             </div>
           );
@@ -352,10 +340,7 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
         {Object.keys(monthBookings).length === 0 ? (
           <div
             className="rounded-xl p-4 text-center"
-            style={{
-              backgroundColor: "#131313",
-              border: "1px solid #1e1e1e",
-            }}
+            style={{ backgroundColor: "#131313", border: "1px solid #1e1e1e" }}
           >
             <p className="text-sm" style={{ color: "#666" }}>
               No rations booked for {monthLabel}
@@ -365,12 +350,9 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
           Array.from({ length: daysInMonth }).map((_, i) => {
             const dayNum = i + 1;
             const date = new Date(viewYear, viewMonth, dayNum);
-            const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-            if (isWeekend) return null;
-
+            if (date.getDay() === 0 || date.getDay() === 6) return null;
             const booking = monthBookings[dayNum];
             if (!booking) return null;
-
             return (
               <div
                 key={dayNum}
@@ -394,14 +376,8 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
                       className="px-2 py-0.5 rounded text-[10px] font-bold"
                       style={
                         booking.meals[m.key]
-                          ? {
-                              backgroundColor: "#c8a97e22",
-                              color: "#c8a97e",
-                            }
-                          : {
-                              backgroundColor: "transparent",
-                              color: "#333",
-                            }
+                          ? { backgroundColor: "#c8a97e22", color: "#c8a97e" }
+                          : { backgroundColor: "transparent", color: "#333" }
                       }
                     >
                       {m.key}
@@ -435,6 +411,7 @@ type AdminDayData = {
   D: number;
 };
 
+// FIX #1 + #2: Admin with Not Indented + date picker
 function AdminView({ namelist }: { namelist: string[] }) {
   const today = startOfDayLocal();
   const [viewMode, setViewMode] = useState<"day" | "week">("day");
@@ -444,6 +421,7 @@ function AdminView({ namelist }: { namelist: string[] }) {
   );
   const [submittedNames, setSubmittedNames] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
 
   const selectedWeekStart = useMemo(
     () => toISO(startOfWeekMonday(fromISO(selectedDate))),
@@ -452,18 +430,15 @@ function AdminView({ namelist }: { namelist: string[] }) {
 
   useEffect(() => {
     let cancelled = false;
-
     async function fetchAdmin() {
       setIsLoading(true);
       try {
         const qs = new URLSearchParams({ weekStart: selectedWeekStart });
         const res = await fetch(`/api/getAdminRations?${qs.toString()}`);
-
         if (!res.ok) {
           console.error(`[AdminView] getAdminRations returned ${res.status}`);
           return;
         }
-
         const data = await res.json();
         if (!cancelled && data?.days) {
           setAdminData(data.days);
@@ -475,7 +450,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
         if (!cancelled) setIsLoading(false);
       }
     }
-
     fetchAdmin();
     return () => {
       cancelled = true;
@@ -494,6 +468,32 @@ function AdminView({ namelist }: { namelist: string[] }) {
     setSelectedDate(toISO(next));
   };
 
+  // Calendar date selection
+  const handleCalendarSelect = (iso: string) => {
+    if (viewMode === "day") {
+      const d = fromISO(iso);
+      const dow = d.getDay();
+      if (dow === 0) d.setDate(d.getDate() + 1);
+      if (dow === 6) d.setDate(d.getDate() + 2);
+      setSelectedDate(toISO(d));
+    } else {
+      setSelectedDate(toISO(startOfWeekMonday(fromISO(iso))));
+    }
+    setCalendarOpen(false);
+  };
+
+  // Calendar state
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const d = fromISO(selectedDate);
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
+
+  // Sync calendar month when selectedDate changes externally
+  useEffect(() => {
+    const d = fromISO(selectedDate);
+    setCalendarMonth({ year: d.getFullYear(), month: d.getMonth() });
+  }, [selectedDate]);
+
   const dayStats = useMemo(() => {
     const allBookings = adminData[selectedDate] || [];
     const active = allBookings.filter((b) => b.status === "active");
@@ -506,9 +506,8 @@ function AdminView({ namelist }: { namelist: string[] }) {
       byType[o.value] = { count: 0, B: 0, L: 0, D: 0 };
     }
     for (const b of active) {
-      if (!byType[b.rationType]) {
+      if (!byType[b.rationType])
         byType[b.rationType] = { count: 0, B: 0, L: 0, D: 0 };
-      }
       byType[b.rationType].count++;
       if (b.meals.B) byType[b.rationType].B++;
       if (b.meals.L) byType[b.rationType].L++;
@@ -517,12 +516,28 @@ function AdminView({ namelist }: { namelist: string[] }) {
     return { total: active.length, byType, active, cancelled };
   }, [adminData, selectedDate]);
 
-  const notSubmittedNames = useMemo(() => {
-    const submitted = new Set(submittedNames);
-    return namelist.filter((n) => !submitted.has(n));
-  }, [namelist, submittedNames]);
+  // FIX #1: Three groups — not submitted, not indented, names present in day
+  const dayNameSets = useMemo(() => {
+    const allBookings = adminData[selectedDate] || [];
+    const activeNames = new Set(
+      allBookings.filter((b) => b.status === "active").map((b) => b.name),
+    );
+    const cancelledNames = new Set(
+      allBookings.filter((b) => b.status === "cancelled").map((b) => b.name),
+    );
+    const submittedSet = new Set(submittedNames);
 
-  type CopyTarget = "submitted" | "notSubmitted" | "cancelled";
+    // Not Indented = submitted the planner but has no booking (active or cancelled) for THIS day
+    const notIndented = submittedNames.filter(
+      (n) => !activeNames.has(n) && !cancelledNames.has(n),
+    );
+    // Not Submitted = never touched the planner for this week
+    const notSubmitted = namelist.filter((n) => !submittedSet.has(n));
+
+    return { notIndented, notSubmitted };
+  }, [adminData, selectedDate, submittedNames, namelist]);
+
+  type CopyTarget = "submitted" | "notSubmitted" | "notIndented" | "cancelled";
   const [copiedList, setCopiedList] = useState<CopyTarget | null>(null);
 
   useEffect(() => {
@@ -586,8 +601,129 @@ function AdminView({ namelist }: { namelist: string[] }) {
         })
       : `Week of ${fromISO(selectedWeekStart).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`;
 
+  // Helper to render a name list section
+  const renderNameList = (
+    title: string,
+    names: string[] | AdminBooking[],
+    badgeBg: string,
+    badgeColor: string,
+    dotColor: string,
+    copyKey: CopyTarget,
+    emptyText: string,
+    emptyColor: string,
+    showMeals?: boolean,
+  ) => {
+    const nameArr = showMeals
+      ? (names as AdminBooking[]).map((b) => b.name)
+      : (names as string[]);
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center justify-between px-1 mb-2">
+          <div className="flex items-center gap-2">
+            <div
+              className="text-xs font-semibold tracking-wider uppercase"
+              style={{ color: "#666" }}
+            >
+              {title}
+            </div>
+            <span
+              className="text-xs font-bold px-1.5 py-0.5 rounded"
+              style={{ backgroundColor: badgeBg, color: badgeColor }}
+            >
+              {nameArr.length}
+            </span>
+          </div>
+          {nameArr.length > 0 && (
+            <Button
+              variant="outline"
+              className="text-[10px] h-7 px-2.5"
+              style={{
+                border: "1px solid #2a2a2a",
+                color: copiedList === copyKey ? "#4ade80" : "#999",
+              }}
+              onClick={() => copyNames(nameArr, copyKey)}
+            >
+              {copiedList === copyKey ? "Copied!" : "Copy names"}
+            </Button>
+          )}
+        </div>
+        {nameArr.length === 0 ? (
+          <div
+            className="rounded-lg px-4 py-3 text-center"
+            style={{ backgroundColor: "#131313", border: "1px solid #1a1a1a" }}
+          >
+            <span className="text-xs" style={{ color: emptyColor }}>
+              {emptyText}
+            </span>
+          </div>
+        ) : showMeals ? (
+          (names as AdminBooking[]).map((b, i) => {
+            const rt = RATION_OPTIONS.find((o) => o.value === b.rationType);
+            return (
+              <div
+                key={`${b.name}-${i}`}
+                className="flex items-center justify-between rounded-lg px-4 py-2.5"
+                style={{
+                  backgroundColor: "#131313",
+                  border: "1px solid #1a1a1a",
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-1.5 h-1.5 rounded-full"
+                    style={{ backgroundColor: rt?.color || dotColor }}
+                  />
+                  <span className="text-xs font-medium text-neutral-300">
+                    {b.name}
+                  </span>
+                </div>
+                <div className="flex gap-1">
+                  {MEALS.map((m) => (
+                    <span
+                      key={m.key}
+                      className="px-1.5 py-0.5 rounded text-[9px] font-bold"
+                      style={
+                        b.meals[m.key]
+                          ? { color: "#c8a97e" }
+                          : { color: "#333" }
+                      }
+                    >
+                      {m.key}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          (names as string[]).map((n) => (
+            <div
+              key={n}
+              className="flex items-center rounded-lg px-4 py-2.5"
+              style={{
+                backgroundColor: "#131313",
+                border: "1px solid #1a1a1a",
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{ backgroundColor: dotColor }}
+                />
+                <span className="text-xs font-medium" style={{ color: "#666" }}>
+                  {n}
+                </span>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-5">
+      {/* View mode toggle */}
       <div
         className="flex gap-1 p-1 rounded-xl"
         style={{ backgroundColor: "#1a1a1a" }}
@@ -601,9 +737,7 @@ function AdminView({ namelist }: { namelist: string[] }) {
           <button
             key={v.key}
             onClick={() => setViewMode(v.key)}
-            className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              viewMode === v.key ? "text-white" : "text-neutral-500"
-            }`}
+            className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === v.key ? "text-white" : "text-neutral-500"}`}
             style={viewMode === v.key ? { backgroundColor: "#2a2a2a" } : {}}
           >
             {v.label}
@@ -611,6 +745,7 @@ function AdminView({ namelist }: { namelist: string[] }) {
         ))}
       </div>
 
+      {/* Date nav with calendar popover */}
       <div className="flex items-center justify-between">
         <Button
           variant="outline"
@@ -619,12 +754,209 @@ function AdminView({ namelist }: { namelist: string[] }) {
         >
           ←
         </Button>
-        <div className="text-center">
-          <div className="text-sm font-bold text-white">{dateLabel}</div>
+        <div className="text-center relative">
+          <button
+            className="text-sm font-bold text-white cursor-pointer transition-all flex items-center gap-1.5"
+            onClick={() => setCalendarOpen((p) => !p)}
+          >
+            {dateLabel}
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 10 10"
+              fill="none"
+              className={`transition-transform ${calendarOpen ? "rotate-180" : ""}`}
+            >
+              <path
+                d="M2 3.5L5 6.5L8 3.5"
+                stroke="#c8a97e"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
           {isLoading && (
             <div className="text-[10px] mt-0.5" style={{ color: "#c8a97e" }}>
               Loading...
             </div>
+          )}
+
+          {/* Calendar popover */}
+          {calendarOpen && (
+            <>
+              {/* Backdrop */}
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setCalendarOpen(false)}
+              />
+              <div
+                className="absolute z-50 top-full mt-2 left-1/2 -translate-x-1/2 rounded-xl p-3 shadow-2xl"
+                style={{
+                  backgroundColor: "#1a1a1a",
+                  border: "1px solid #2a2a2a",
+                  minWidth: "280px",
+                }}
+              >
+                {/* Month/Year header */}
+                <div className="flex items-center justify-between mb-3">
+                  <button
+                    className="p-1 rounded-md transition-all hover:bg-white/5"
+                    style={{ color: "#999" }}
+                    onClick={() =>
+                      setCalendarMonth((prev) => {
+                        const d = new Date(prev.year, prev.month - 1, 1);
+                        return { year: d.getFullYear(), month: d.getMonth() };
+                      })
+                    }
+                  >
+                    ←
+                  </button>
+                  <span className="text-sm font-semibold text-white">
+                    {new Date(
+                      calendarMonth.year,
+                      calendarMonth.month,
+                    ).toLocaleDateString("en-GB", {
+                      month: "long",
+                      year: "numeric",
+                    })}
+                  </span>
+                  <button
+                    className="p-1 rounded-md transition-all hover:bg-white/5"
+                    style={{ color: "#999" }}
+                    onClick={() =>
+                      setCalendarMonth((prev) => {
+                        const d = new Date(prev.year, prev.month + 1, 1);
+                        return { year: d.getFullYear(), month: d.getMonth() };
+                      })
+                    }
+                  >
+                    →
+                  </button>
+                </div>
+                {/* Day headers */}
+                <div className="grid grid-cols-5 gap-0.5 mb-1">
+                  {["Mo", "Tu", "We", "Th", "Fr"].map((d) => (
+                    <div
+                      key={d}
+                      className="text-center text-[10px] font-bold py-1"
+                      style={{ color: "#555" }}
+                    >
+                      {d}
+                    </div>
+                  ))}
+                </div>
+                {/* Day grid */}
+                <div className="grid grid-cols-5 gap-0.5">
+                  {(() => {
+                    const daysInMonth = new Date(
+                      calendarMonth.year,
+                      calendarMonth.month + 1,
+                      0,
+                    ).getDate();
+
+                    const todayISO = toISO(today);
+                    const selectedWeekMon = toISO(
+                      startOfWeekMonday(fromISO(selectedDate)),
+                    );
+
+                    const weeks: JSX.Element[][] = [];
+                    let currentWeek: JSX.Element[] = [];
+
+                    for (let d = 1; d <= daysInMonth; d++) {
+                      const date = new Date(
+                        calendarMonth.year,
+                        calendarMonth.month,
+                        d,
+                      );
+                      const iso = toISO(date);
+                      const dow = date.getDay(); // 0 Sun, 6 Sat
+
+                      if (dow === 0 || dow === 6) continue;
+
+                      const mondayIndex = dow - 1; // Mon=0 ... Fri=4
+                      const isToday = iso === todayISO;
+                      const isSelected =
+                        viewMode === "day"
+                          ? iso === selectedDate
+                          : toISO(startOfWeekMonday(date)) === selectedWeekMon;
+
+                      if (dow === 1 && currentWeek.length > 0) {
+                        while (currentWeek.length < 5) {
+                          currentWeek.push(
+                            <div
+                              key={`tail-pad-${weeks.length}-${currentWeek.length}`}
+                            />,
+                          );
+                        }
+                        weeks.push(currentWeek);
+                        currentWeek = [];
+                      }
+
+                      while (currentWeek.length < mondayIndex) {
+                        currentWeek.push(
+                          <div key={`pad-${d}-${currentWeek.length}`} />,
+                        );
+                      }
+
+                      currentWeek.push(
+                        <button
+                          key={d}
+                          onClick={() => handleCalendarSelect(iso)}
+                          className="relative flex items-center justify-center rounded-md py-1.5 text-xs font-medium transition-all"
+                          style={{
+                            backgroundColor: isSelected
+                              ? "#c8a97e"
+                              : "transparent",
+                            color: isSelected
+                              ? "#0a0a0a"
+                              : isToday
+                                ? "#c8a97e"
+                                : "#ccc",
+                            cursor: "pointer",
+                            fontWeight: isToday || isSelected ? 700 : 400,
+                          }}
+                        >
+                          {d}
+                          {isToday && !isSelected && (
+                            <span
+                              className="absolute bottom-0.5 w-1 h-1 rounded-full"
+                              style={{ backgroundColor: "#c8a97e" }}
+                            />
+                          )}
+                        </button>,
+                      );
+                    }
+
+                    if (currentWeek.length > 0) {
+                      while (currentWeek.length < 5) {
+                        currentWeek.push(
+                          <div key={`final-pad-${currentWeek.length}`} />,
+                        );
+                      }
+                      weeks.push(currentWeek);
+                    }
+
+                    return weeks.flat();
+                  })()}
+                </div>
+                {/* Quick actions */}
+                <div
+                  className="flex gap-2 mt-3 pt-2"
+                  style={{ borderTop: "1px solid #252525" }}
+                >
+                  <button
+                    className="flex-1 text-[10px] font-medium py-1.5 rounded-md transition-all hover:bg-white/5"
+                    style={{ color: "#c8a97e" }}
+                    onClick={() => {
+                      setSelectedDate(toISO(today));
+                      setCalendarOpen(false);
+                    }}
+                  >
+                    Today
+                  </button>
+                </div>
+              </div>
+            </>
           )}
         </div>
         <Button
@@ -638,6 +970,7 @@ function AdminView({ namelist }: { namelist: string[] }) {
 
       {viewMode === "day" ? (
         <>
+          {/* Total headcount */}
           <div
             className="rounded-2xl p-5 text-center"
             style={{ backgroundColor: "#161616", border: "1px solid #222" }}
@@ -671,6 +1004,7 @@ function AdminView({ namelist }: { namelist: string[] }) {
             </div>
           </div>
 
+          {/* By ration type */}
           {dayStats.total > 0 && (
             <div className="space-y-2">
               <div
@@ -736,226 +1070,58 @@ function AdminView({ namelist }: { namelist: string[] }) {
             </div>
           )}
 
-          <div className="space-y-1">
-            <div className="flex items-center justify-between px-1 mb-2">
-              <div className="flex items-center gap-2">
-                <div
-                  className="text-xs font-semibold tracking-wider uppercase"
-                  style={{ color: "#666" }}
-                >
-                  Submitted
-                </div>
-                <span
-                  className="text-xs font-bold px-1.5 py-0.5 rounded"
-                  style={{ backgroundColor: "#1a1812", color: "#c8a97e" }}
-                >
-                  {dayStats.active.length}
-                </span>
-              </div>
-              {dayStats.active.length > 0 && (
-                <Button
-                  variant="outline"
-                  className="text-[10px] h-7 px-2.5"
-                  style={{
-                    border: "1px solid #2a2a2a",
-                    color: copiedList === "submitted" ? "#4ade80" : "#999",
-                  }}
-                  onClick={() =>
-                    copyNames(
-                      dayStats.active.map((b) => b.name),
-                      "submitted",
-                    )
-                  }
-                >
-                  {copiedList === "submitted" ? "Copied!" : "Copy names"}
-                </Button>
-              )}
-            </div>
-            {dayStats.active.length === 0 && !isLoading ? (
-              <div
-                className="rounded-lg px-4 py-3 text-center"
-                style={{
-                  backgroundColor: "#131313",
-                  border: "1px solid #1a1a1a",
-                }}
-              >
-                <span className="text-xs" style={{ color: "#555" }}>
-                  No active bookings for this day
-                </span>
-              </div>
-            ) : (
-              dayStats.active.map((b, i) => {
-                const rt = RATION_OPTIONS.find((o) => o.value === b.rationType);
-                return (
-                  <div
-                    key={`${b.name}-${i}`}
-                    className="flex items-center justify-between rounded-lg px-4 py-2.5"
-                    style={{
-                      backgroundColor: "#131313",
-                      border: "1px solid #1a1a1a",
-                    }}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-1.5 h-1.5 rounded-full"
-                        style={{ backgroundColor: rt?.color || "#666" }}
-                      />
-                      <span className="text-xs font-medium text-neutral-300">
-                        {b.name}
-                      </span>
-                    </div>
-                    <div className="flex gap-1">
-                      {MEALS.map((m) => (
-                        <span
-                          key={m.key}
-                          className="px-1.5 py-0.5 rounded text-[9px] font-bold"
-                          style={
-                            b.meals[m.key]
-                              ? { color: "#c8a97e" }
-                              : { color: "#333" }
-                          }
-                        >
-                          {m.key}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-
-          {dayStats.cancelled.length > 0 && (
-            <div className="space-y-1">
-              <div className="flex items-center justify-between px-1 mb-2">
-                <div className="flex items-center gap-2">
-                  <div
-                    className="text-xs font-semibold tracking-wider uppercase"
-                    style={{ color: "#666" }}
-                  >
-                    Cancelled
-                  </div>
-                  <span
-                    className="text-xs font-bold px-1.5 py-0.5 rounded"
-                    style={{ backgroundColor: "#1a1511", color: "#f59e0b" }}
-                  >
-                    {dayStats.cancelled.length}
-                  </span>
-                </div>
-                <Button
-                  variant="outline"
-                  className="text-[10px] h-7 px-2.5"
-                  style={{
-                    border: "1px solid #2a2a2a",
-                    color: copiedList === "cancelled" ? "#4ade80" : "#999",
-                  }}
-                  onClick={() =>
-                    copyNames(
-                      dayStats.cancelled.map((b) => b.name),
-                      "cancelled",
-                    )
-                  }
-                >
-                  {copiedList === "cancelled" ? "Copied!" : "Copy names"}
-                </Button>
-              </div>
-              {dayStats.cancelled.map((b, i) => (
-                <div
-                  key={`cancelled-${b.name}-${i}`}
-                  className="flex items-center rounded-lg px-4 py-2.5"
-                  style={{
-                    backgroundColor: "#131313",
-                    border: "1px solid #1a1a1a",
-                  }}
-                >
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="w-1.5 h-1.5 rounded-full"
-                      style={{ backgroundColor: "#f59e0b66" }}
-                    />
-                    <span
-                      className="text-xs font-medium"
-                      style={{ color: "#999" }}
-                    >
-                      {b.name}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+          {/* FIX #1: All 4 categories */}
+          {renderNameList(
+            "Submitted",
+            dayStats.active,
+            "#1a1812",
+            "#c8a97e",
+            "#666",
+            "submitted",
+            "No active bookings for this day",
+            "#555",
+            true,
           )}
 
-          <div className="space-y-1">
-            <div className="flex items-center justify-between px-1 mb-2">
-              <div className="flex items-center gap-2">
-                <div
-                  className="text-xs font-semibold tracking-wider uppercase"
-                  style={{ color: "#666" }}
-                >
-                  Not Submitted
-                </div>
-                <span
-                  className="text-xs font-bold px-1.5 py-0.5 rounded"
-                  style={{ backgroundColor: "#1a1111", color: "#ef4444" }}
-                >
-                  {notSubmittedNames.length}
-                </span>
-              </div>
-              {notSubmittedNames.length > 0 && (
-                <Button
-                  variant="outline"
-                  className="text-[10px] h-7 px-2.5"
-                  style={{
-                    border: "1px solid #2a2a2a",
-                    color: copiedList === "notSubmitted" ? "#4ade80" : "#999",
-                  }}
-                  onClick={() => copyNames(notSubmittedNames, "notSubmitted")}
-                >
-                  {copiedList === "notSubmitted" ? "Copied!" : "Copy names"}
-                </Button>
-              )}
-            </div>
-            {notSubmittedNames.length === 0 ? (
-              <div
-                className="rounded-lg px-4 py-3 text-center"
-                style={{
-                  backgroundColor: "#131313",
-                  border: "1px solid #1a1a1a",
-                }}
-              >
-                <span className="text-xs" style={{ color: "#4ade80" }}>
-                  Everyone has submitted!
-                </span>
-              </div>
-            ) : (
-              notSubmittedNames.map((name) => (
-                <div
-                  key={name}
-                  className="flex items-center rounded-lg px-4 py-2.5"
-                  style={{
-                    backgroundColor: "#131313",
-                    border: "1px solid #1a1a1a",
-                  }}
-                >
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="w-1.5 h-1.5 rounded-full"
-                      style={{ backgroundColor: "#ef444466" }}
-                    />
-                    <span
-                      className="text-xs font-medium"
-                      style={{ color: "#666" }}
-                    >
-                      {name}
-                    </span>
-                  </div>
-                </div>
-              ))
+          {dayStats.cancelled.length > 0 &&
+            renderNameList(
+              "Cancelled",
+              dayStats.cancelled.map((b) => b.name),
+              "#1a1511",
+              "#f59e0b",
+              "#f59e0b66",
+              "cancelled",
+              "",
+              "#555",
             )}
-          </div>
+
+          {renderNameList(
+            "Not Indented",
+            dayNameSets.notIndented,
+            "#1a1518",
+            "#a78bfa",
+            "#a78bfa66",
+            "notIndented",
+            dayNameSets.notIndented.length === 0
+              ? "Everyone who submitted has indented"
+              : "",
+            "#a78bfa",
+          )}
+
+          {renderNameList(
+            "Not Submitted",
+            dayNameSets.notSubmitted,
+            "#1a1111",
+            "#ef4444",
+            "#ef444466",
+            "notSubmitted",
+            "Everyone has submitted!",
+            "#4ade80",
+          )}
         </>
       ) : (
         <>
+          {/* Week totals */}
           <div
             className="rounded-2xl p-5 text-center"
             style={{ backgroundColor: "#161616", border: "1px solid #222" }}
@@ -988,6 +1154,7 @@ function AdminView({ namelist }: { namelist: string[] }) {
             </div>
           </div>
 
+          {/* Bar chart */}
           <div
             className="rounded-2xl p-5"
             style={{ backgroundColor: "#131313", border: "1px solid #1e1e1e" }}
@@ -1030,6 +1197,7 @@ function AdminView({ namelist }: { namelist: string[] }) {
             </div>
           </div>
 
+          {/* Per day breakdown */}
           <div className="space-y-2">
             {weekDays.map((day) => (
               <button
@@ -1076,8 +1244,9 @@ function AdminView({ namelist }: { namelist: string[] }) {
   );
 }
 
+// ─── Main Component ──────────────────────────────────────────
 export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
-  const auth = useAuth(); // CHANGED 3: added auth hook
+  const auth = useAuth();
   const baseKey = "rationDetails";
   const nameKey = `${baseKey}:name`;
   const rationKey = `${baseKey}:rationType`;
@@ -1095,12 +1264,10 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
   );
 
   const dayKeys = useMemo(() => Object.keys(plan.days).sort(), [plan.days]);
-
   const readOnlyWeek = weekStart < minWeekStartISO;
 
   const submittedKey = `${baseKey}:weekSubmitted:${weekStart}`;
   const submittedRationKey = `${baseKey}:weekSubmittedRation:${weekStart}`;
-
   const stableStringify = useCallback(
     (obj: unknown) => JSON.stringify(obj),
     [],
@@ -1111,10 +1278,8 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(submittedKey);
-      setSubmittedFingerprint(raw ?? "");
-      const rawRation = localStorage.getItem(submittedRationKey);
-      setSubmittedRationType(rawRation ?? "");
+      setSubmittedFingerprint(localStorage.getItem(submittedKey) ?? "");
+      setSubmittedRationType(localStorage.getItem(submittedRationKey) ?? "");
     } catch {
       setSubmittedFingerprint("");
       setSubmittedRationType("");
@@ -1126,16 +1291,16 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     [plan, stableStringify],
   );
 
-  const hasAnyRation = useMemo(() => {
-    return Object.values(plan.days).some((d) => d.enabled);
-  }, [plan.days]);
+  const hasAnyRation = useMemo(
+    () => Object.values(plan.days).some((d) => d.enabled),
+    [plan.days],
+  );
 
   const enabledDaysWithNoMeals = useMemo(() => {
     const bad: string[] = [];
     for (const [dateISO, day] of Object.entries(plan.days)) {
-      if (day.enabled && !day.meals.B && !day.meals.L && !day.meals.D) {
+      if (day.enabled && !day.meals.B && !day.meals.L && !day.meals.D)
         bad.push(dateISO);
-      }
     }
     return bad;
   }, [plan.days]);
@@ -1176,11 +1341,17 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
   useEffect(() => {
     setNoRationConfirmed(false);
   }, [weekStart]);
-
   useEffect(() => {
     if (hasAnyRation) setNoRationConfirmed(false);
   }, [hasAnyRation]);
 
+  // FIX #3: Track if editing someone else
+  const isEditingOther =
+    AUTH_MODE !== "none" && CAN_EDIT_ANY && auth.name
+      ? name !== "" && name !== auth.name
+      : false;
+
+  // FIX #4: Block nav when no rations + not confirmed + not already submitted as empty
   const guardNavigate = (fn: () => void) => {
     if (readOnlyWeek) {
       fn();
@@ -1189,6 +1360,32 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     if (hasUnsavedChanges) {
       toast.error("You have unsaved changes", {
         description: "Please submit before switching weeks.",
+      });
+      return;
+    }
+    // Block when all days are off, not yet confirmed, and not already submitted as no-ration
+    if (
+      !hasAnyRation &&
+      !noRationConfirmed &&
+      !submittedWithNoRation &&
+      submittedFingerprint !== ""
+    ) {
+      toast.error("No rations selected", {
+        description:
+          "Please confirm 'no rations' or select meals before switching weeks.",
+      });
+      return;
+    }
+    if (
+      !hasAnyRation &&
+      !noRationConfirmed &&
+      submittedFingerprint === "" &&
+      name.trim() &&
+      rationType
+    ) {
+      toast.error("No rations selected", {
+        description:
+          "Please confirm 'no rations' or select meals before switching weeks.",
       });
       return;
     }
@@ -1201,10 +1398,12 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
   >({});
   const [isFetching, setIsFetching] = useState(false);
 
-  // CHANGED 4: Load identity — respects AUTH_MODE
+  // Load identity
   useEffect(() => {
     if (AUTH_MODE !== "none" && auth.name) {
-      setName(auth.name);
+      setName(
+        CAN_EDIT_ANY ? localStorage.getItem(nameKey) || auth.name : auth.name,
+      );
     } else if (AUTH_MODE === "none") {
       try {
         setName(localStorage.getItem(nameKey) ?? "");
@@ -1216,9 +1415,9 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.name]);
 
-  // CHANGED 5: Only persist name in none mode
+  // Persist identity (name only in none mode or edit_any mode)
   useEffect(() => {
-    if (AUTH_MODE !== "none") return;
+    if (AUTH_MODE !== "none" && !CAN_EDIT_ANY) return;
     try {
       if (name) localStorage.setItem(nameKey, name);
       else localStorage.removeItem(nameKey);
@@ -1232,52 +1431,37 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     } catch {}
   }, [rationType, rationKey]);
 
+  // Bulk fetch
   useEffect(() => {
     if (!name.trim()) {
       setServerCache({});
       return;
     }
-
     let cancelled = false;
-
     async function fetchAll() {
       try {
         const cached = localStorage.getItem(cacheKey);
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (!cancelled) setServerCache(parsed);
-        }
-      } catch (e) {
-        console.warn("[RationPlanner] localStorage cache read failed:", e);
-      }
-
+        if (cached && !cancelled) setServerCache(JSON.parse(cached));
+      } catch {}
       setIsFetching(true);
       try {
-        const qs = new URLSearchParams({ name: name.trim() });
-        const res = await fetch(`/api/getAllRations?${qs.toString()}`);
-
+        const res = await fetch(
+          `/api/getAllRations?${new URLSearchParams({ name: name.trim() })}`,
+        );
         if (!res.ok) {
-          console.error(
-            `[RationPlanner] getAllRations returned ${res.status}:`,
-            await res.text().catch(() => ""),
-          );
+          console.error(`[RationPlanner] getAllRations ${res.status}`);
           return;
         }
-
         const data = await res.json();
-
         if (!cancelled && data?.weeks) {
           const weeks = data.weeks as Record<
             string,
             { rationType: string | null; plan: WeekPlan }
           >;
-
           setServerCache(weeks);
-
           try {
             localStorage.setItem(cacheKey, JSON.stringify(weeks));
           } catch {}
-
           if (!rationType) {
             for (const entry of Object.values(weeks)) {
               if (entry.rationType) {
@@ -1286,30 +1470,26 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
               }
             }
           }
-
           for (const [ws, entry] of Object.entries(weeks)) {
             try {
-              const subKey = `${baseKey}:weekSubmitted:${ws}`;
-              const subRatKey = `${baseKey}:weekSubmittedRation:${ws}`;
-              localStorage.setItem(subKey, JSON.stringify(entry.plan));
-              if (entry.rationType) {
-                localStorage.setItem(subRatKey, entry.rationType);
-              }
+              localStorage.setItem(
+                `${baseKey}:weekSubmitted:${ws}`,
+                JSON.stringify(entry.plan),
+              );
+              if (entry.rationType)
+                localStorage.setItem(
+                  `${baseKey}:weekSubmittedRation:${ws}`,
+                  entry.rationType,
+                );
             } catch {}
           }
-        } else if (!cancelled) {
-          console.warn(
-            "[RationPlanner] getAllRations response missing 'weeks':",
-            data,
-          );
         }
       } catch (e) {
-        console.error("[RationPlanner] getAllRations fetch error:", e);
+        console.error("[RationPlanner] fetch error:", e);
       } finally {
         if (!cancelled) setIsFetching(false);
       }
     }
-
     fetchAll();
     return () => {
       cancelled = true;
@@ -1331,8 +1511,9 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
       } catch {}
     } else {
       try {
-        const raw = localStorage.getItem(draftKey);
-        setPlan(normalizeOrRebuildDraft(raw, weekStart));
+        setPlan(
+          normalizeOrRebuildDraft(localStorage.getItem(draftKey), weekStart),
+        );
       } catch {
         setPlan(buildDefaultWeek(weekStart));
       }
@@ -1349,13 +1530,11 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
 
   const prevWeek = () =>
     guardNavigate(() => setWeekStart(nextWeekStartISO(weekStart, -1)));
-
   const nextWeek = () =>
     guardNavigate(() => setWeekStart(nextWeekStartISO(weekStart, +1)));
 
   const setDayEnabled = (dateISO: string, enabled: boolean) => {
-    if (readOnlyWeek) return;
-    if (isPastDateLocked(dateISO)) return;
+    if (readOnlyWeek || isPastDateLocked(dateISO)) return;
     setPlan((prev) => {
       const next = structuredClone(prev);
       next.days[dateISO].enabled = enabled;
@@ -1365,8 +1544,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
   };
 
   const toggleMeal = (dateISO: string, meal: Meal) => {
-    if (readOnlyWeek) return;
-    if (isPastDateLocked(dateISO)) return;
+    if (readOnlyWeek || isPastDateLocked(dateISO)) return;
     setPlan((prev) => {
       const next = structuredClone(prev);
       const day = next.days[dateISO];
@@ -1416,12 +1594,13 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          rationType: rationType,
+          rationType,
           weekStart: plan.weekStart,
           plan,
+          // FIX #3: track who made the edit
+          ...(TRACK_EDITED_BY && auth.name ? { editedBy: auth.name } : {}),
         }),
       });
-
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         toast.error("Submit failed", {
@@ -1438,10 +1617,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
 
       setServerCache((prev) => {
         const next = { ...prev };
-        next[plan.weekStart] = {
-          rationType,
-          plan: structuredClone(plan),
-        };
+        next[plan.weekStart] = { rationType, plan: structuredClone(plan) };
         try {
           localStorage.setItem(cacheKey, JSON.stringify(next));
         } catch {}
@@ -1464,7 +1640,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     n.toLowerCase().includes(nameSearch.toLowerCase()),
   );
 
-  // ── CHANGED 6: Login gate — only when AUTH_MODE=sgid ──────────
+  // Login gate
   if (AUTH_MODE !== "none" && auth.isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[300px]">
@@ -1474,7 +1650,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
       </div>
     );
   }
-
   if (AUTH_MODE !== "none" && !auth.isAuthenticated) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-6 max-w-md mx-auto text-center">
@@ -1487,7 +1662,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
           </p>
         </div>
         <div
-          className="rounded-2xl p-8 space-y-4 w-full mb-auto"
+          className="rounded-2xl p-8 space-y-4 w-full"
           style={{ backgroundColor: "#161616", border: "1px solid #252525" }}
         >
           <p className="text-sm" style={{ color: "#999" }}>
@@ -1510,7 +1685,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
 
   return (
     <div className="flex flex-col gap-6 max-w-xl">
-      {/* CHANGED 7: Header with conditional logout button */}
       <div className="text-center space-y-1 relative">
         <h1 className="text-xl font-bold text-white tracking-tight">
           Ration Planner
@@ -1536,17 +1710,21 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
         </TabsList>
         <TabsContent value="plan" className="gap-6 flex flex-col">
           <div className="space-y-3 bg-muted p-4 rounded-lg">
-            {/* CHANGED 8: Conditional name section */}
+            {/* FIX #3: Name section — 3 modes */}
             <div className="space-y-2 relative">
               <Label
                 className="text-xs font-semibold tracking-wider uppercase"
                 style={{ color: "#c8a97e" }}
               >
-                {AUTH_MODE !== "none" ? "Logged in as" : "Your Name"}
+                {AUTH_MODE !== "none" && !CAN_EDIT_ANY
+                  ? "Logged in as"
+                  : CAN_EDIT_ANY
+                    ? "Editing rations for"
+                    : "Your Name"}
               </Label>
 
-              {AUTH_MODE !== "none" ? (
-                /* sgID mode: static verified name */
+              {AUTH_MODE !== "none" && !CAN_EDIT_ANY ? (
+                /* sgid + self_only: static name */
                 <div
                   className="flex items-center rounded-xl px-4 py-3"
                   style={{
@@ -1565,7 +1743,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                   </span>
                 </div>
               ) : (
-                /* none mode: original dropdown (unchanged) */
+                /* none OR sgid+edit_any: dropdown */
                 <>
                   <div
                     className="flex items-center rounded-xl px-4 py-3 cursor-pointer transition-colors"
@@ -1619,11 +1797,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                         {filteredNames.map((n) => (
                           <button
                             key={n}
-                            className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
-                              n === name
-                                ? "text-white"
-                                : "text-neutral-400 hover:text-white"
-                            }`}
+                            className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${n === name ? "text-white" : "text-neutral-400 hover:text-white"}`}
                             style={
                               n === name ? { backgroundColor: "#252525" } : {}
                             }
@@ -1645,6 +1819,15 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                         ))}
                       </div>
                     </div>
+                  )}
+                  {/* FIX #3: editing-other notice */}
+                  {isEditingOther && (
+                    <p
+                      className="text-[11px] font-medium mt-1"
+                      style={{ color: "#f59e0b" }}
+                    >
+                      Editing on behalf of {name} (logged in as {auth.name})
+                    </p>
                   )}
                 </>
               )}
@@ -1701,7 +1884,8 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                     year: "numeric",
                   })}
                   <div className="text-xs mt-0.5" style={{ color: "#666" }}>
-                    Mon-Fri · 3-week lead time
+                    Mon-Fri · {process.env.NEXT_PUBLIC_LEAD_TIME ?? 3}-week lead
+                    time
                     <br />
                     {readOnlyWeek ? (
                       <span className="text-xs font-medium text-white">
@@ -1715,7 +1899,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                     ) : null}
                   </div>
                 </div>
-
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
@@ -1743,6 +1926,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                 </div>
               </div>
 
+              {/* Week grid */}
               <div className="space-y-3">
                 {dayKeys.map((dateISO) => {
                   const day = plan.days[dateISO];
@@ -1796,7 +1980,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                             </span>
                           ) : null}
                         </div>
-
                         <div className="flex-1 flex flex-col gap-2">
                           {day.enabled && (
                             <>
@@ -1836,7 +2019,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                             </>
                           )}
                         </div>
-
                         <Button
                           onClick={() => setDayEnabled(dateISO, !day.enabled)}
                           className="relative w-12 h-7 rounded-full transition-all duration-300"
@@ -1861,6 +2043,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                 })}
               </div>
 
+              {/* No-ration banner */}
               {!hasAnyRation && !readOnlyWeek && (
                 <div
                   className="rounded-xl p-4 flex items-center justify-between"
@@ -1945,6 +2128,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                 </div>
               )}
 
+              {/* Actions */}
               <div className="flex gap-3">
                 <Button
                   onClick={clearWeek}
