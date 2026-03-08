@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
 
 const AUTH_MODE = process.env.NEXT_PUBLIC_AUTH_MODE || "none";
-const EDIT_MODE = process.env.NEXT_PUBLIC_EDIT_MODE || "self_only"; // FIX #3
+const EDIT_MODE = process.env.NEXT_PUBLIC_EDIT_MODE || "self_only";
 const CAN_EDIT_ANY = EDIT_MODE === "edit_any";
 const TRACK_EDITED_BY = AUTH_MODE !== "none" && CAN_EDIT_ANY;
 
@@ -411,7 +411,6 @@ type AdminDayData = {
   D: number;
 };
 
-// FIX #1 + #2: Admin with Not Indented + date picker
 function AdminView({ namelist }: { namelist: string[] }) {
   const today = startOfDayLocal();
   const [viewMode, setViewMode] = useState<"day" | "week">("day");
@@ -516,7 +515,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
     return { total: active.length, byType, active, cancelled };
   }, [adminData, selectedDate]);
 
-  // FIX #1: Three groups — not submitted, not indented, names present in day
   const dayNameSets = useMemo(() => {
     const allBookings = adminData[selectedDate] || [];
     const activeNames = new Set(
@@ -1256,6 +1254,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
   const [showNameDropdown, setShowNameDropdown] = useState(false);
   const minWeekStartISO = useMemo(() => getMinBookableWeekStartISO(), []);
   const [name, setName] = useState("");
+  const [hasTouchedWeek, setHasTouchedWeek] = useState(false);
 
   const [weekStart, setWeekStart] = useState<string>(minWeekStartISO);
 
@@ -1286,6 +1285,10 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
       setSubmittedRationType("");
     }
   }, [submittedKey, submittedRationKey]);
+
+  useEffect(() => {
+    setHasTouchedWeek(false);
+  }, [weekStart]);
 
   const currentFingerprint = useMemo(
     () => stableStringify(plan),
@@ -1346,7 +1349,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     if (hasAnyRation) setNoRationConfirmed(false);
   }, [hasAnyRation]);
 
-  // FIX #3: Track if editing someone else
   const isEditingOther =
     AUTH_MODE !== "none" && CAN_EDIT_ANY && auth.name
       ? name !== "" && name !== auth.name
@@ -1364,38 +1366,38 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
       fn();
       return;
     }
-    if (hasUnsavedChanges) {
+
+    // Existing submitted week: block only if there are real unsaved changes
+    if (submittedFingerprint && hasUnsavedChanges) {
       toast.error("You have unsaved changes", {
         description: "Please submit before switching weeks.",
       });
       return;
     }
-    // Block when all days are off, not yet confirmed, and not already submitted as no-ration
-    if (
-      !hasAnyRation &&
-      !noRationConfirmed &&
-      !submittedWithNoRation &&
-      submittedFingerprint !== ""
-    ) {
-      toast.error("No rations selected", {
+
+    // New untouched week: free to move around
+    if (!submittedFingerprint && !hasTouchedWeek) {
+      fn();
+      return;
+    }
+
+    // New week that user has interacted with: must submit before leaving
+    if (!submittedFingerprint && hasTouchedWeek) {
+      toast.error("Please submit before switching weeks", {
         description:
-          "Please confirm 'no rations' or select meals before switching weeks.",
+          "You already started editing this week. Submit your rations or confirm no rations first.",
       });
       return;
     }
-    if (
-      !hasAnyRation &&
-      !noRationConfirmed &&
-      submittedFingerprint === "" &&
-      name.trim() &&
-      rationType
-    ) {
-      toast.error("No rations selected", {
-        description:
-          "Please confirm 'no rations' or select meals before switching weeks.",
+
+    // Extra protection for explicit no-ration confirmation on already-submitted weeks
+    if (noRationConfirmed && hasUnsavedChanges) {
+      toast.error("Please submit before switching weeks", {
+        description: "Your no-ration confirmation has not been submitted yet.",
       });
       return;
     }
+
     fn();
   };
 
@@ -1542,6 +1544,8 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
 
   const setDayEnabled = (dateISO: string, enabled: boolean) => {
     if (readOnlyWeek || isPastDateLocked(dateISO)) return;
+    setHasTouchedWeek(true);
+
     setPlan((prev) => {
       const next = structuredClone(prev);
       next.days[dateISO].enabled = enabled;
@@ -1552,6 +1556,8 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
 
   const toggleMeal = (dateISO: string, meal: Meal) => {
     if (readOnlyWeek || isPastDateLocked(dateISO)) return;
+    setHasTouchedWeek(true);
+
     setPlan((prev) => {
       const next = structuredClone(prev);
       const day = next.days[dateISO];
@@ -1563,6 +1569,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
 
   const clearWeek = () => {
     if (readOnlyWeek) return;
+    setHasTouchedWeek(true);
     setPlan(buildDefaultWeek(weekStart));
     toast.info("Cleared", { description: "Click Submit to save changes." });
   };
@@ -1604,7 +1611,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
           rationType,
           weekStart: plan.weekStart,
           plan,
-          // FIX #3: track who made the edit
           ...(TRACK_EDITED_BY && auth.name ? { editedBy: auth.name } : {}),
         }),
       });
@@ -2156,7 +2162,10 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                           border: "1px solid #3d3520",
                           color: "#c8a97e",
                         }}
-                        onClick={() => setNoRationConfirmed(true)}
+                        onClick={() => {
+                          setHasTouchedWeek(true);
+                          setNoRationConfirmed(true);
+                        }}
                       >
                         Confirm
                       </Button>
