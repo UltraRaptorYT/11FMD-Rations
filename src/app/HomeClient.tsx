@@ -228,7 +228,7 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
         ].map((stat) => (
           <div
             key={stat.label}
-            className="rounded-xl p-3 text-center"
+            className="rounded-xl py-3 text-center"
             style={{ backgroundColor: "#161616", border: "1px solid #222" }}
           >
             <div className="text-2xl font-bold" style={{ color: stat.color }}>
