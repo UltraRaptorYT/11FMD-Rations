@@ -527,7 +527,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
     );
     const submittedSet = new Set(submittedNames);
 
-    // Not Indented = submitted the planner but has no booking (active or cancelled) for THIS day
     // Not Submitted = never touched the planner for this week
     const notSubmitted = namelist.filter((n) => !submittedSet.has(n));
 
