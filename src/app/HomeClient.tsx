@@ -2023,7 +2023,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                       }}
                     >
                       <div className="flex items-center gap-4">
-                        <div className="flex flex-col items-center min-w-[44px]">
+                        <div className="flex flex-col items-center min-w-[25px]">
                           <span
                             className="text-[10px] font-bold tracking-wider uppercase"
                             style={{ color: day.enabled ? "#c8a97e" : "#555" }}
@@ -2056,7 +2056,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                                     key={m.key}
                                     disabled={locked}
                                     onClick={() => toggleMeal(dateISO, m.key)}
-                                    className="flex-1 py-2 rounded-lg text-xs font-semibold transition-all duration-200"
+                                    className="flex-1 py-2 px-1.5 rounded-lg text-xs text-[10px] font-semibold transition-all duration-200"
                                     style={
                                       day.meals[m.key]
                                         ? {
@@ -2071,7 +2071,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                                           }
                                     }
                                   >
-                                    {m.label.charAt(0)}
+                                    {m.label}
                                   </Button>
                                 ))}
                               </div>
