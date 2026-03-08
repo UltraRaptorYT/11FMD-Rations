@@ -270,11 +270,16 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
               {week.map(({ dayNum, date }) => {
                 const booking = monthBookings[dayNum];
                 const isToday = toISO(date) === toISO(today);
-                const mealCount = booking
-                  ? [booking.meals.B, booking.meals.L, booking.meals.D].filter(
-                      Boolean,
-                    ).length
-                  : 0;
+                const mealArr = booking
+                  ? [booking.meals.B, booking.meals.L, booking.meals.D].map(
+                      (e) => e,
+                    )
+                  : [];
+                const mealColor = [
+                  { label: "Breakfast", value: stats.B, color: "#6366f1" },
+                  { label: "Lunch", value: stats.L, color: "#10b981" },
+                  { label: "Dinner", value: stats.D, color: "#f59e0b" },
+                ];
                 return (
                   <div
                     key={dayNum}
@@ -294,15 +299,21 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
                     >
                       {dayNum}
                     </span>
-                    {booking && mealCount > 0 && (
+                    {booking && mealArr.length > 0 && (
                       <div className="flex gap-0.5 mt-1">
-                        {Array.from({ length: mealCount }).map((_, j) => (
-                          <div
-                            key={j}
-                            className="w-1.5 h-1.5 rounded-full"
-                            style={{ backgroundColor: "#c8a97e" }}
-                          />
-                        ))}
+                        {[...mealArr].map((booked, j) => {
+                          if (booked)
+                            return (
+                              <div
+                                key={j}
+                                className="w-1.5 h-1.5 rounded-full"
+                                style={{
+                                  backgroundColor:
+                                    mealColor[j].color ?? "#c8a97e",
+                                }}
+                              />
+                            );
+                        })}
                       </div>
                     )}
                   </div>
@@ -323,9 +334,23 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
         <span className="flex items-center gap-2">
           <span
             className="w-2 h-2 rounded-full"
-            style={{ backgroundColor: "#c8a97e" }}
+            style={{ backgroundColor: "#6366f1" }}
           />
-          Ration booked
+          Breakfast
+        </span>
+        <span className="flex items-center gap-2">
+          <span
+            className="w-2 h-2 rounded-full"
+            style={{ backgroundColor: "#10b981" }}
+          />
+          Lunch
+        </span>
+        <span className="flex items-center gap-2">
+          <span
+            className="w-2 h-2 rounded-full"
+            style={{ backgroundColor: "#f59e0b" }}
+          />
+          Dinner
         </span>
         <span className="flex items-center gap-2">
           <span
@@ -1918,7 +1943,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
           ) : (
             <>
               <div className="flex items-center justify-between">
-                <div className="font-medium">
+                <div className="font-medium text-sm">
                   Week of{" "}
                   {fromISO(plan.weekStart).toLocaleDateString("en-GB", {
                     day: "numeric",
