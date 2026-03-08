@@ -528,16 +528,13 @@ function AdminView({ namelist }: { namelist: string[] }) {
     const submittedSet = new Set(submittedNames);
 
     // Not Indented = submitted the planner but has no booking (active or cancelled) for THIS day
-    const notIndented = submittedNames.filter(
-      (n) => !activeNames.has(n) && !cancelledNames.has(n),
-    );
     // Not Submitted = never touched the planner for this week
     const notSubmitted = namelist.filter((n) => !submittedSet.has(n));
 
-    return { notIndented, notSubmitted };
+    return { notSubmitted };
   }, [adminData, selectedDate, submittedNames, namelist]);
 
-  type CopyTarget = "submitted" | "notSubmitted" | "notIndented" | "cancelled";
+  type CopyTarget = "submitted" | "notSubmitted" | "cancelled";
   const [copiedList, setCopiedList] = useState<CopyTarget | null>(null);
 
   useEffect(() => {
@@ -590,6 +587,9 @@ function AdminView({ namelist }: { namelist: string[] }) {
     viewMode === "week"
       ? Math.max(...weekDays.map((d) => d.total), 1)
       : Math.max(...Object.values(dayStats.byType).map((t) => t.count), 1);
+
+  // Quick lookup for namelist membership (for NEW badge)
+  const namelistSet = useMemo(() => new Set(namelist), [namelist]);
 
   const dateLabel =
     viewMode === "day"
@@ -659,13 +659,16 @@ function AdminView({ namelist }: { namelist: string[] }) {
         ) : showMeals ? (
           (names as AdminBooking[]).map((b, i) => {
             const rt = RATION_OPTIONS.find((o) => o.value === b.rationType);
+            const isUnknown = !namelistSet.has(b.name);
             return (
               <div
                 key={`${b.name}-${i}`}
                 className="flex items-center justify-between rounded-lg px-4 py-2.5"
                 style={{
                   backgroundColor: "#131313",
-                  border: "1px solid #1a1a1a",
+                  border: isUnknown
+                    ? "1px solid #7c3aed33"
+                    : "1px solid #1a1a1a",
                 }}
               >
                 <div className="flex items-center gap-2">
@@ -676,6 +679,17 @@ function AdminView({ namelist }: { namelist: string[] }) {
                   <span className="text-xs font-medium text-neutral-300">
                     {b.name}
                   </span>
+                  {isUnknown && (
+                    <span
+                      className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                      style={{
+                        backgroundColor: "#7c3aed22",
+                        color: "#a78bfa",
+                      }}
+                    >
+                      NEW
+                    </span>
+                  )}
                 </div>
                 <div className="flex gap-1">
                   {MEALS.map((m) => (
@@ -1070,9 +1084,9 @@ function AdminView({ namelist }: { namelist: string[] }) {
             </div>
           )}
 
-          {/* FIX #1: All 4 categories */}
+          {/* FIX #1: All 3 categories */}
           {renderNameList(
-            "Submitted",
+            "Indented",
             dayStats.active,
             "#1a1812",
             "#c8a97e",
@@ -1085,28 +1099,16 @@ function AdminView({ namelist }: { namelist: string[] }) {
 
           {dayStats.cancelled.length > 0 &&
             renderNameList(
-              "Cancelled",
-              dayStats.cancelled.map((b) => b.name),
+              "Not Indented",
+              dayStats.cancelled,
               "#1a1511",
               "#f59e0b",
               "#f59e0b66",
               "cancelled",
               "",
               "#555",
+              true,
             )}
-
-          {renderNameList(
-            "Not Indented",
-            dayNameSets.notIndented,
-            "#1a1518",
-            "#a78bfa",
-            "#a78bfa66",
-            "notIndented",
-            dayNameSets.notIndented.length === 0
-              ? "Everyone who submitted has indented"
-              : "",
-            "#a78bfa",
-          )}
 
           {renderNameList(
             "Not Submitted",
@@ -1350,6 +1352,12 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     AUTH_MODE !== "none" && CAN_EDIT_ANY && auth.name
       ? name !== "" && name !== auth.name
       : false;
+
+  // Check if current sgID user is in the namelist
+  const isUserInNamelist = useMemo(() => {
+    if (AUTH_MODE === "none" || !auth.name) return true;
+    return namelist.includes(auth.name);
+  }, [auth.name, namelist]);
 
   // FIX #4: Block nav when no rations + not confirmed + not already submitted as empty
   const guardNavigate = (fn: () => void) => {
@@ -1724,24 +1732,53 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
               </Label>
 
               {AUTH_MODE !== "none" && !CAN_EDIT_ANY ? (
-                /* sgid + self_only: static name */
-                <div
-                  className="flex items-center rounded-xl px-4 py-3"
-                  style={{
-                    backgroundColor: "#0f0f0f",
-                    border: "1px solid #2a2a2a",
-                  }}
-                >
-                  <span className="flex-1 text-sm font-medium text-white">
-                    {name || "Loading..."}
-                  </span>
-                  <span
-                    className="text-[10px] px-2 py-0.5 rounded-full"
-                    style={{ backgroundColor: "#4ade8020", color: "#4ade80" }}
+                /* sgid + self_only: static name with NEW badge for unknown users */
+                <>
+                  <div
+                    className="flex items-center rounded-xl px-4 py-3"
+                    style={{
+                      backgroundColor: "#0f0f0f",
+                      border: !isUserInNamelist
+                        ? "1px solid #7c3aed44"
+                        : "1px solid #2a2a2a",
+                    }}
                   >
-                    Verified
-                  </span>
-                </div>
+                    <span className="flex-1 text-sm font-medium text-white">
+                      {name || "Loading..."}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {!isUserInNamelist && (
+                        <span
+                          className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                          style={{
+                            backgroundColor: "#7c3aed22",
+                            color: "#a78bfa",
+                          }}
+                        >
+                          NEW
+                        </span>
+                      )}
+                      <span
+                        className="text-[10px] px-2 py-0.5 rounded-full"
+                        style={{
+                          backgroundColor: "#4ade8020",
+                          color: "#4ade80",
+                        }}
+                      >
+                        Verified
+                      </span>
+                    </div>
+                  </div>
+                  {!isUserInNamelist && (
+                    <p
+                      className="text-[11px] mt-1"
+                      style={{ color: "#a78bfa" }}
+                    >
+                      Your name isn&apos;t in the roster yet. Your bookings are
+                      saved — contact your admin to be added.
+                    </p>
+                  )}
+                </>
               ) : (
                 /* none OR sgid+edit_any: dropdown */
                 <>

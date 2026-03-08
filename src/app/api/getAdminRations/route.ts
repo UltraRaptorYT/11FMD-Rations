@@ -84,8 +84,8 @@ export async function GET(request: Request) {
       const Lsel = toBool01(l);
       const Dsel = toBool01(d);
 
-      // Only include if at least one meal is booked
-      if (!Bsel && !Lsel && !Dsel) continue;
+      // // Only include if at least one meal is booked
+      // if (!Bsel && !Lsel && !Dsel) continue;
 
       days[rowDate].push({
         name: rowName,
