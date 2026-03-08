@@ -1662,7 +1662,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
           </p>
         </div>
         <div
-          className="rounded-2xl p-8 space-y-4 w-full"
+          className="rounded-2xl p-8 space-y-4 w-full mb-auto"
           style={{ backgroundColor: "#161616", border: "1px solid #252525" }}
         >
           <p className="text-sm" style={{ color: "#999" }}>
