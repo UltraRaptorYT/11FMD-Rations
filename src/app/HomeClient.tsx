@@ -70,7 +70,7 @@ function isPastDateLocked(dateISO: string) {
 function getMinBookableWeekStartISO() {
   const lead = addDaysLocal(
     startOfDayLocal(),
-    Number(process.env.NEXT_PUBLIC_LEAD_TIME) * 7 + 4,
+    Number(process.env.NEXT_PUBLIC_LEAD_TIME) * 7 + 3,
   );
   return toISO(startOfWeekMonday(lead));
 }
