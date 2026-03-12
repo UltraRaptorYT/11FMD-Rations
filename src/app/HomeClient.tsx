@@ -70,7 +70,7 @@ function isPastDateLocked(dateISO: string) {
 function getMinBookableWeekStartISO() {
   const lead = addDaysLocal(
     startOfDayLocal(),
-    Number(process.env.NEXT_PUBLIC_LEAD_TIME) * 7 + 3,
+    Number(process.env.NEXT_PUBLIC_LEAD_TIME) * 7 + 3, // 3 = Thursday 2359 will close. Friday, Saturday, Sunday = 3 Days
   );
   return toISO(startOfWeekMonday(lead));
 }
@@ -1280,7 +1280,10 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
   const minWeekStartISO = useMemo(() => getMinBookableWeekStartISO(), []);
   const [name, setName] = useState("");
   const [hasTouchedWeek, setHasTouchedWeek] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [lastSubmitAt, setLastSubmitAt] = useState(0);
 
+  const SUBMIT_COOLDOWN_MS = 3000;
   const [weekStart, setWeekStart] = useState<string>(minWeekStartISO);
 
   const draftKey = `${baseKey}:weekDraft:${weekStart}`;
@@ -1604,12 +1607,24 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
 
   const canSubmit =
     !readOnlyWeek &&
+    !isSubmitting &&
     Boolean(name.trim()) &&
     Boolean(rationType) &&
     !hasIncompleteDays &&
     (hasUnsavedChanges || noRationConfirmed);
 
   const handleSubmit = async () => {
+    if (isSubmitting) return;
+
+    const now = Date.now();
+    const remaining = SUBMIT_COOLDOWN_MS - (now - lastSubmitAt);
+    if (remaining > 0) {
+      toast.error("Please wait before submitting again", {
+        description: `Try again in ${Math.ceil(remaining / 1000)}s.`,
+      });
+      return;
+    }
+
     if (hasIncompleteDays) {
       const labels = enabledDaysWithNoMeals
         .map((iso) =>
@@ -1625,7 +1640,10 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
       });
       return;
     }
+
     if (!canSubmit) return;
+
+    setIsSubmitting(true);
 
     try {
       const res = await fetch("/api/addRation", {
@@ -1639,6 +1657,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
           ...(TRACK_EDITED_BY && auth.name ? { editedBy: auth.name } : {}),
         }),
       });
+
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         toast.error("Submit failed", {
@@ -1652,6 +1671,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
       localStorage.setItem(submittedRationKey, rationType);
       setSubmittedRationType(rationType);
       setNoRationConfirmed(false);
+      setLastSubmitAt(Date.now());
 
       setServerCache((prev) => {
         const next = { ...prev };
@@ -1671,6 +1691,8 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
       toast.error("Submit failed", {
         description: "Network error. Try again.",
       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -2232,9 +2254,11 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                   }
                   onClick={handleSubmit}
                 >
-                  {noRationConfirmed && !hasAnyRation
-                    ? "Submit — No Rations"
-                    : "Submit Rations"}
+                  {isSubmitting
+                    ? "Submitting..."
+                    : noRationConfirmed && !hasAnyRation
+                      ? "Submit — No Rations"
+                      : "Submit Rations"}
                 </Button>
               </div>
             </>
