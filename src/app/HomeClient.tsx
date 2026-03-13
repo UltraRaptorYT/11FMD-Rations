@@ -70,7 +70,7 @@ function isPastDateLocked(dateISO: string) {
 function getMinBookableWeekStartISO() {
   const lead = addDaysLocal(
     startOfDayLocal(),
-    Number(process.env.NEXT_PUBLIC_LEAD_TIME) * 7 + 3, // 3 = Thursday 2359 will close. Friday, Saturday, Sunday = 3 Days
+    Number(process.env.NEXT_PUBLIC_LEAD_TIME) * 7 + 4, // 4 = Wednesday 2359 will close. Thursday, Friday, Saturday, Sunday = 4 Days
   );
   return toISO(startOfWeekMonday(lead));
 }
