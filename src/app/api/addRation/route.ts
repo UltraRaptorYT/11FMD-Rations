@@ -18,7 +18,7 @@ const SHEET_ID = process.env.RATION_SHEET_ID!;
 const SHEET_NAME = process.env.RATIONS_SHEET_NAME!;
 
 const WRITE_COLS_START = "C";
-const WRITE_COLS_END = "M"; // CHANGED: was "L", now "M" to include edited_by
+const WRITE_COLS_END = "M";
 
 function startOfWeekMonday(iso: string) {
   const d = fromISO(iso);
@@ -40,16 +40,57 @@ async function appendRowsAtC(
 ) {
   if (rowsCtoM.length === 0) return;
 
+  // 1) Read sheet metadata to get current row count + sheetId
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    ranges: [sheetName],
+    includeGridData: false,
+  });
+
+  const sheet = meta.data.sheets?.find(
+    (s) => s.properties?.title === sheetName,
+  );
+
+  if (!sheet?.properties?.sheetId) {
+    throw new Error(`Sheet not found: ${sheetName}`);
+  }
+
+  const sheetId = sheet.properties.sheetId;
+  const currentRowCount = sheet.properties.gridProperties?.rowCount ?? 1000;
+
+  // 2) Find the next row based on column C usage
+  //    This avoids overwriting existing C:M data.
   const colC = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range: `${sheetName}!${WRITE_COLS_START}2:${WRITE_COLS_START}`,
   });
 
-  const existingCount = (colC.data.values ?? []).length;
-  const startRow = existingCount + 2;
+  const usedRowsInC = colC.data.values ?? [];
+  const nextRow = usedRowsInC.length + 1;
+  // if row 1 is header, and C1 is occupied, this gives next empty row correctly
 
+  // 3) Expand the sheet if needed
+  const neededLastRow = nextRow + rowsCtoM.length - 1;
+  if (neededLastRow > currentRowCount) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            appendDimension: {
+              sheetId,
+              dimension: "ROWS",
+              length: neededLastRow - currentRowCount,
+            },
+          },
+        ],
+      },
+    });
+  }
+
+  // 4) Write only to C:M
   const data = rowsCtoM.map((row, i) => ({
-    range: `${sheetName}!${WRITE_COLS_START}${startRow + i}:${WRITE_COLS_END}${startRow + i}`,
+    range: `${sheetName}!C${nextRow + i}:M${nextRow + i}`,
     values: [row],
   }));
 
@@ -72,7 +113,7 @@ export async function POST(request: Request) {
     const rationType = (body?.rationType ?? "").trim();
     const weekStartInput = (body?.weekStart ?? "").trim();
     const plan = body?.plan;
-    const editedBy = (body?.editedBy ?? "").trim(); // CHANGED: read editedBy
+    const editedBy = (body?.editedBy ?? "").trim();
 
     if (!name) {
       return NextResponse.json({ error: "Missing name" }, { status: 400 });
