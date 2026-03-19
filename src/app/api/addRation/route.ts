@@ -29,8 +29,13 @@ function startOfWeekMonday(iso: string) {
   return toISO(d);
 }
 
-function keyOf(weekStart: string, date: string, name: string) {
-  return `${weekStart}|${date}|${name}`;
+function keyOf(
+  weekStart: string,
+  date: string,
+  name: string,
+  rationType: string,
+) {
+  return `${weekStart}|${date}|${name}|${rationType}`;
 }
 
 async function appendRowsAtC(
@@ -40,7 +45,6 @@ async function appendRowsAtC(
 ) {
   if (rowsCtoM.length === 0) return;
 
-  // 1) Read sheet metadata to get current row count + sheetId
   const meta = await sheets.spreadsheets.get({
     spreadsheetId,
     ranges: [sheetName],
@@ -51,25 +55,33 @@ async function appendRowsAtC(
     (s) => s.properties?.title === sheetName,
   );
 
-  if (!sheet?.properties?.sheetId) {
+  if (sheet?.properties?.sheetId == null) {
     throw new Error(`Sheet not found: ${sheetName}`);
   }
 
   const sheetId = sheet.properties.sheetId;
   const currentRowCount = sheet.properties.gridProperties?.rowCount ?? 1000;
 
-  // 2) Find the next row based on column C usage
-  //    This avoids overwriting existing C:M data.
+  // Read column C from row 2 onward
   const colC = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range: `${sheetName}!${WRITE_COLS_START}2:${WRITE_COLS_START}`,
   });
 
-  const usedRowsInC = colC.data.values ?? [];
-  const nextRow = usedRowsInC.length + 1;
-  // if row 1 is header, and C1 is occupied, this gives next empty row correctly
+  const values = colC.data.values ?? [];
 
-  // 3) Expand the sheet if needed
+  // Find actual last used row in C
+  let lastUsedRow = 1; // assume only header exists
+  for (let i = values.length - 1; i >= 0; i--) {
+    const cell = values[i]?.[0];
+    if (cell !== undefined && String(cell).trim() !== "") {
+      lastUsedRow = i + 2; // row number because range starts at row 2
+      break;
+    }
+  }
+
+  const nextRow = lastUsedRow + 1;
+
   const neededLastRow = nextRow + rowsCtoM.length - 1;
   if (neededLastRow > currentRowCount) {
     await sheets.spreadsheets.batchUpdate({
@@ -88,7 +100,6 @@ async function appendRowsAtC(
     });
   }
 
-  // 4) Write only to C:M
   const data = rowsCtoM.map((row, i) => ({
     range: `${sheetName}!C${nextRow + i}:M${nextRow + i}`,
     values: [row],
@@ -135,9 +146,6 @@ export async function POST(request: Request) {
     const monFriDates = getMonFri(weekStart);
     const nowIso = new Date().toISOString();
 
-    // Build desired rows for Mon–Fri
-    // Each row is C..M (11 cols)
-    // [week_start, date, name, ration_type, B, L, D, status, submitted_at, updated_at, edited_by]
     const desiredByKey = new Map<string, (string | number)[]>();
 
     for (const dateISO of monFriDates) {
@@ -152,37 +160,38 @@ export async function POST(request: Request) {
       const status = hasAnyMeal ? "ACTIVE" : "CANCELLED";
 
       const row: (string | number)[] = [
-        weekStart, // C
-        dateISO, // D
-        name, // E
+        weekStart,  // C
+        dateISO,    // D
+        name,       // E
         rationType, // F
-        b, // G
-        l, // H
-        din, // I
-        status, // J
-        nowIso, // K (submitted_at)
-        nowIso, // L (updated_at)
-        editedBy, // M (edited_by) — empty string if self-edit
+        b,          // G
+        l,          // H
+        din,        // I
+        status,     // J
+        nowIso,     // K
+        nowIso,     // L
+        editedBy,   // M
       ];
 
-      desiredByKey.set(keyOf(weekStart, dateISO, name), row);
+      desiredByKey.set(keyOf(weekStart, dateISO, name, rationType), row);
     }
 
-    // Read existing rows to find upserts
     const readRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `${SHEET_NAME}!${WRITE_COLS_START}2:E`,
+      range: `${SHEET_NAME}!${WRITE_COLS_START}2:F`,
     });
 
     const existing = (readRes.data.values ?? []) as string[][];
     const rowByKey = new Map<string, number>();
 
     existing.forEach((r, idx) => {
-      const ws = (r?.[0] ?? "").trim();
-      const dt = (r?.[1] ?? "").trim();
-      const nm = (r?.[2] ?? "").trim();
-      if (!ws || !dt || !nm) return;
-      rowByKey.set(keyOf(ws, dt, nm), idx + 2);
+      const ws = (r?.[0] ?? "").trim(); // C
+      const dt = (r?.[1] ?? "").trim(); // D
+      const nm = (r?.[2] ?? "").trim(); // E
+      const rt = (r?.[3] ?? "").trim(); // F
+
+      if (!ws || !dt || !nm || !rt) return;
+      rowByKey.set(keyOf(ws, dt, nm, rt), idx + 2);
     });
 
     const updateRequests: {
@@ -195,7 +204,7 @@ export async function POST(request: Request) {
     for (const [k, rowValues] of desiredByKey.entries()) {
       const existingRowNumber = rowByKey.get(k);
 
-      if (existingRowNumber) {
+      if (existingRowNumber != null) {
         updateRequests.push({
           range: `${SHEET_NAME}!${WRITE_COLS_START}${existingRowNumber}:${WRITE_COLS_END}${existingRowNumber}`,
           values: [rowValues],
