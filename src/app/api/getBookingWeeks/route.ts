@@ -139,28 +139,4 @@ export async function GET() {
       { status: 500 },
     );
   }
-}          weekStart,
-          autoLocked,
-          adminOverride,
-          finalLocked: finalLockedRaw ?? fallbackLocked,
-          source: finalLockedRaw === null ? "fallback_env" : "booking_weeks",
-        };
-      })
-      .filter(Boolean);
-
-    return NextResponse.json(
-      {
-        ok: true,
-        fallbackMinBookableWeekStart,
-        weeks,
-      },
-      { status: 200 },
-    );
-  } catch (err) {
-    console.error("GET getBookingWeeks Error:", err);
-    return NextResponse.json(
-      { error: "Failed to fetch booking weeks" },
-      { status: 500 },
-    );
-  }
 }
