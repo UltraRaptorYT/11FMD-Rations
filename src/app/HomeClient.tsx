@@ -34,7 +34,6 @@ const RATION_OPTIONS: { value: RationType; label: string; color: string }[] = [
   { value: "vc", label: "Veg Chinese", color: "#ec4899" },
 ];
 
-// ---------- LOCAL date helpers (no UTC drift) ----------
 function addDaysLocal(date: Date, n: number) {
   const d = new Date(date);
   d.setDate(d.getDate() + n);
@@ -70,7 +69,7 @@ function isPastDateLocked(dateISO: string) {
 function getMinBookableWeekStartISO() {
   const lead = addDaysLocal(
     startOfDayLocal(),
-    Number(process.env.NEXT_PUBLIC_LEAD_TIME) * 7 + 4, // 4 = Wednesday 2359 will close. Thursday, Friday, Saturday, Sunday = 4 Days
+    Number(process.env.NEXT_PUBLIC_LEAD_TIME) * 7 + 4,
   );
   return toISO(startOfWeekMonday(lead));
 }
@@ -100,11 +99,22 @@ function normalizeOrRebuildDraft(
   }
 }
 
-type WeeklyRationPlannerProps = {
-  namelist: string[];
+type BookingWeekStatus = {
+  weekStart: string;
+  autoLocked: boolean | null;
+  adminOverride: "LOCK" | "UNLOCK" | null;
+  finalLocked: boolean;
+  source: "booking_weeks" | "fallback_env";
 };
 
-// ─── Monthly Overview (unchanged) ────────────────────────────
+type HomeClientProps = {
+  namelist: string[];
+  initialBookingWeeksData: {
+    fallbackMinBookableWeekStart: string | null;
+    weeks: BookingWeekStatus[];
+  };
+};
+
 type MonthlyOverviewProps = {
   serverCache: Record<string, { rationType: string | null; plan: WeekPlan }>;
   name: string;
@@ -271,14 +281,12 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
                 const booking = monthBookings[dayNum];
                 const isToday = toISO(date) === toISO(today);
                 const mealArr = booking
-                  ? [booking.meals.B, booking.meals.L, booking.meals.D].map(
-                      (e) => e,
-                    )
+                  ? [booking.meals.B, booking.meals.L, booking.meals.D]
                   : [];
                 const mealColor = [
-                  { label: "Breakfast", value: stats.B, color: "#6366f1" },
-                  { label: "Lunch", value: stats.L, color: "#10b981" },
-                  { label: "Dinner", value: stats.D, color: "#f59e0b" },
+                  { color: "#6366f1" },
+                  { color: "#10b981" },
+                  { color: "#f59e0b" },
                 ];
                 return (
                   <div
@@ -301,19 +309,17 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
                     </span>
                     {booking && mealArr.length > 0 && (
                       <div className="flex gap-0.5 mt-1">
-                        {[...mealArr].map((booked, j) => {
-                          if (booked)
-                            return (
-                              <div
-                                key={j}
-                                className="w-1.5 h-1.5 rounded-full"
-                                style={{
-                                  backgroundColor:
-                                    mealColor[j].color ?? "#c8a97e",
-                                }}
-                              />
-                            );
-                        })}
+                        {mealArr.map((booked, j) =>
+                          booked ? (
+                            <div
+                              key={j}
+                              className="w-1.5 h-1.5 rounded-full"
+                              style={{
+                                backgroundColor: mealColor[j].color ?? "#c8a97e",
+                              }}
+                            />
+                          ) : null,
+                        )}
                       </div>
                     )}
                   </div>
@@ -418,7 +424,6 @@ function MonthlyOverview({ serverCache, name }: MonthlyOverviewProps) {
   );
 }
 
-// ─── Admin View ──────────────────────────────────────────────
 type AdminBooking = {
   name: string;
   rationType: string;
@@ -492,7 +497,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
     setSelectedDate(toISO(next));
   };
 
-  // Calendar date selection
   const handleCalendarSelect = (iso: string) => {
     if (viewMode === "day") {
       const d = fromISO(iso);
@@ -506,13 +510,11 @@ function AdminView({ namelist }: { namelist: string[] }) {
     setCalendarOpen(false);
   };
 
-  // Calendar state
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const d = fromISO(selectedDate);
     return { year: d.getFullYear(), month: d.getMonth() };
   });
 
-  // Sync calendar month when selectedDate changes externally
   useEffect(() => {
     const d = fromISO(selectedDate);
     setCalendarMonth({ year: d.getFullYear(), month: d.getMonth() });
@@ -530,8 +532,9 @@ function AdminView({ namelist }: { namelist: string[] }) {
       byType[o.value] = { count: 0, B: 0, L: 0, D: 0 };
     }
     for (const b of active) {
-      if (!byType[b.rationType])
+      if (!byType[b.rationType]) {
         byType[b.rationType] = { count: 0, B: 0, L: 0, D: 0 };
+      }
       byType[b.rationType].count++;
       if (b.meals.B) byType[b.rationType].B++;
       if (b.meals.L) byType[b.rationType].L++;
@@ -541,20 +544,10 @@ function AdminView({ namelist }: { namelist: string[] }) {
   }, [adminData, selectedDate]);
 
   const dayNameSets = useMemo(() => {
-    const allBookings = adminData[selectedDate] || [];
-    const activeNames = new Set(
-      allBookings.filter((b) => b.status === "active").map((b) => b.name),
-    );
-    const cancelledNames = new Set(
-      allBookings.filter((b) => b.status === "cancelled").map((b) => b.name),
-    );
     const submittedSet = new Set(submittedNames);
-
-    // Not Submitted = never touched the planner for this week
     const notSubmitted = namelist.filter((n) => !submittedSet.has(n));
-
     return { notSubmitted };
-  }, [adminData, selectedDate, submittedNames, namelist]);
+  }, [submittedNames, namelist]);
 
   type CopyTarget = "submitted" | "notSubmitted" | "cancelled";
   const [copiedList, setCopiedList] = useState<CopyTarget | null>(null);
@@ -610,7 +603,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
       ? Math.max(...weekDays.map((d) => d.total), 1)
       : Math.max(...Object.values(dayStats.byType).map((t) => t.count), 1);
 
-  // Quick lookup for namelist membership (for NEW badge)
   const namelistSet = useMemo(() => new Set(namelist), [namelist]);
 
   const dateLabel =
@@ -621,9 +613,12 @@ function AdminView({ namelist }: { namelist: string[] }) {
           month: "long",
           year: "numeric",
         })
-      : `Week of ${fromISO(selectedWeekStart).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`;
+      : `Week of ${fromISO(selectedWeekStart).toLocaleDateString("en-GB", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })}`;
 
-  // Helper to render a name list section
   const renderNameList = (
     title: string,
     names: string[] | AdminBooking[],
@@ -759,7 +754,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
 
   return (
     <div className="space-y-5">
-      {/* View mode toggle */}
       <div
         className="flex gap-1 p-1 rounded-xl"
         style={{ backgroundColor: "#1a1a1a" }}
@@ -781,7 +775,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
         ))}
       </div>
 
-      {/* Date nav with calendar popover */}
       <div className="flex items-center justify-between">
         <Button
           variant="outline"
@@ -817,10 +810,8 @@ function AdminView({ namelist }: { namelist: string[] }) {
             </div>
           )}
 
-          {/* Calendar popover */}
           {calendarOpen && (
             <>
-              {/* Backdrop */}
               <div
                 className="fixed inset-0 z-40"
                 onClick={() => setCalendarOpen(false)}
@@ -833,7 +824,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
                   minWidth: "280px",
                 }}
               >
-                {/* Month/Year header */}
                 <div className="flex items-center justify-between mb-3">
                   <button
                     className="p-1 rounded-md transition-all hover:bg-white/5"
@@ -869,7 +859,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
                     →
                   </button>
                 </div>
-                {/* Day headers */}
                 <div className="grid grid-cols-5 gap-0.5 mb-1">
                   {["Mo", "Tu", "We", "Th", "Fr"].map((d) => (
                     <div
@@ -881,7 +870,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
                     </div>
                   ))}
                 </div>
-                {/* Day grid */}
                 <div className="grid grid-cols-5 gap-0.5">
                   {(() => {
                     const daysInMonth = new Date(
@@ -905,11 +893,11 @@ function AdminView({ namelist }: { namelist: string[] }) {
                         d,
                       );
                       const iso = toISO(date);
-                      const dow = date.getDay(); // 0 Sun, 6 Sat
+                      const dow = date.getDay();
 
                       if (dow === 0 || dow === 6) continue;
 
-                      const mondayIndex = dow - 1; // Mon=0 ... Fri=4
+                      const mondayIndex = dow - 1;
                       const isToday = iso === todayISO;
                       const isSelected =
                         viewMode === "day"
@@ -975,7 +963,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
                     return weeks.flat();
                   })()}
                 </div>
-                {/* Quick actions */}
                 <div
                   className="flex gap-2 mt-3 pt-2"
                   style={{ borderTop: "1px solid #252525" }}
@@ -1006,7 +993,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
 
       {viewMode === "day" ? (
         <>
-          {/* Total headcount */}
           <div
             className="rounded-2xl p-5 text-center"
             style={{ backgroundColor: "#161616", border: "1px solid #222" }}
@@ -1040,7 +1026,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
             </div>
           </div>
 
-          {/* By ration type */}
           {dayStats.total > 0 && (
             <div className="space-y-2">
               <div
@@ -1106,7 +1091,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
             </div>
           )}
 
-          {/* FIX #1: All 3 categories */}
           {renderNameList(
             "Indented",
             dayStats.active,
@@ -1118,19 +1102,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
             "#555",
             true,
           )}
-
-          {dayStats.cancelled.length > 0 &&
-            renderNameList(
-              "Not Indented",
-              dayStats.cancelled,
-              "#1a1511",
-              "#f59e0b",
-              "#f59e0b66",
-              "cancelled",
-              "",
-              "#555",
-              true,
-            )}
 
           {renderNameList(
             "Not Submitted",
@@ -1145,7 +1116,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
         </>
       ) : (
         <>
-          {/* Week totals */}
           <div
             className="rounded-2xl p-5 text-center"
             style={{ backgroundColor: "#161616", border: "1px solid #222" }}
@@ -1178,7 +1148,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
             </div>
           </div>
 
-          {/* Bar chart */}
           <div
             className="rounded-2xl p-5"
             style={{ backgroundColor: "#131313", border: "1px solid #1e1e1e" }}
@@ -1221,7 +1190,6 @@ function AdminView({ namelist }: { namelist: string[] }) {
             </div>
           </div>
 
-          {/* Per day breakdown */}
           <div className="space-y-2">
             {weekDays.map((day) => (
               <button
@@ -1268,8 +1236,10 @@ function AdminView({ namelist }: { namelist: string[] }) {
   );
 }
 
-// ─── Main Component ──────────────────────────────────────────
-export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
+export default function HomeClient({
+  namelist,
+  initialBookingWeeksData,
+}: HomeClientProps) {
   const auth = useAuth();
   const baseKey = "rationDetails";
   const nameKey = `${baseKey}:name`;
@@ -1283,6 +1253,23 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastSubmitAt, setLastSubmitAt] = useState(0);
 
+  const initialBookingWeekLocks = useMemo(() => {
+    const locks: Record<string, boolean> = {};
+    for (const w of initialBookingWeeksData.weeks ?? []) {
+      if (w?.weekStart) {
+        locks[w.weekStart] = Boolean(w.finalLocked);
+      }
+    }
+    return locks;
+  }, [initialBookingWeeksData]);
+
+  const [bookingWeekLocks] = useState<Record<string, boolean>>(
+    initialBookingWeekLocks,
+  );
+  const [fallbackMinBookableWeekStart] = useState<string>(
+    initialBookingWeeksData.fallbackMinBookableWeekStart ?? minWeekStartISO,
+  );
+
   const SUBMIT_COOLDOWN_MS = 3000;
   const [weekStart, setWeekStart] = useState<string>(minWeekStartISO);
 
@@ -1292,7 +1279,8 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
   );
 
   const dayKeys = useMemo(() => Object.keys(plan.days).sort(), [plan.days]);
-  const readOnlyWeek = weekStart < minWeekStartISO;
+  const readOnlyWeek =
+    bookingWeekLocks[weekStart] ?? (weekStart < fallbackMinBookableWeekStart);
 
   const submittedKey = `${baseKey}:weekSubmitted:${weekStart}`;
   const submittedRationKey = `${baseKey}:weekSubmittedRation:${weekStart}`;
@@ -1331,8 +1319,9 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
   const enabledDaysWithNoMeals = useMemo(() => {
     const bad: string[] = [];
     for (const [dateISO, day] of Object.entries(plan.days)) {
-      if (day.enabled && !day.meals.B && !day.meals.L && !day.meals.D)
+      if (day.enabled && !day.meals.B && !day.meals.L && !day.meals.D) {
         bad.push(dateISO);
+      }
     }
     return bad;
   }, [plan.days]);
@@ -1373,6 +1362,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
   useEffect(() => {
     setNoRationConfirmed(false);
   }, [weekStart]);
+
   useEffect(() => {
     if (hasAnyRation) setNoRationConfirmed(false);
   }, [hasAnyRation]);
@@ -1382,20 +1372,17 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
       ? name !== "" && name !== auth.name
       : false;
 
-  // Check if current sgID user is in the namelist
   const isUserInNamelist = useMemo(() => {
     if (AUTH_MODE === "none" || !auth.name) return true;
     return namelist.includes(auth.name);
   }, [auth.name, namelist]);
 
-  // FIX #4: Block nav when no rations + not confirmed + not already submitted as empty
   const guardNavigate = (fn: () => void) => {
     if (readOnlyWeek) {
       fn();
       return;
     }
 
-    // Existing submitted week: block only if there are real unsaved changes
     if (submittedFingerprint && hasUnsavedChanges) {
       toast.error("You have unsaved changes", {
         description: "Please submit before switching weeks.",
@@ -1403,13 +1390,11 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
       return;
     }
 
-    // New untouched week: free to move around
     if (!submittedFingerprint && !hasTouchedWeek) {
       fn();
       return;
     }
 
-    // New week that user has interacted with: must submit before leaving
     if (!submittedFingerprint && hasTouchedWeek) {
       toast.error("Please submit before switching weeks", {
         description:
@@ -1418,7 +1403,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
       return;
     }
 
-    // Extra protection for explicit no-ration confirmation on already-submitted weeks
     if (noRationConfirmed && hasUnsavedChanges) {
       toast.error("Please submit before switching weeks", {
         description: "Your no-ration confirmation has not been submitted yet.",
@@ -1435,7 +1419,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
   >({});
   const [isFetching, setIsFetching] = useState(false);
 
-  // Load identity
   useEffect(() => {
     if (AUTH_MODE !== "none" && auth.name) {
       setName(
@@ -1449,10 +1432,8 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     try {
       setRationType((localStorage.getItem(rationKey) as RationType) ?? "");
     } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.name]);
+  }, [auth.name, nameKey, rationKey]);
 
-  // Persist identity (name only in none mode or edit_any mode)
   useEffect(() => {
     if (AUTH_MODE !== "none" && !CAN_EDIT_ANY) return;
     try {
@@ -1468,7 +1449,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     } catch {}
   }, [rationType, rationKey]);
 
-  // Bulk fetch
   useEffect(() => {
     if (!name.trim()) {
       setServerCache({});
@@ -1486,7 +1466,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
           `/api/getAllRations?${new URLSearchParams({ name: name.trim() })}`,
         );
         if (!res.ok) {
-          console.error(`[RationPlanner] getAllRations ${res.status}`);
+          console.error(`[HomeClient] getAllRations ${res.status}`);
           return;
         }
         const data = await res.json();
@@ -1513,16 +1493,17 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                 `${baseKey}:weekSubmitted:${ws}`,
                 JSON.stringify(entry.plan),
               );
-              if (entry.rationType)
+              if (entry.rationType) {
                 localStorage.setItem(
                   `${baseKey}:weekSubmittedRation:${ws}`,
                   entry.rationType,
                 );
+              }
             } catch {}
           }
         }
       } catch (e) {
-        console.error("[RationPlanner] fetch error:", e);
+        console.error("[HomeClient] fetch error:", e);
       } finally {
         if (!cancelled) setIsFetching(false);
       }
@@ -1531,8 +1512,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, cacheKey]);
+  }, [name, cacheKey, rationType]);
 
   useEffect(() => {
     const cached = serverCache[weekStart];
@@ -1700,7 +1680,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
     n.toLowerCase().includes(nameSearch.toLowerCase()),
   );
 
-  // Login gate
   if (AUTH_MODE !== "none" && auth.isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[300px]">
@@ -1710,6 +1689,7 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
       </div>
     );
   }
+
   if (AUTH_MODE !== "none" && !auth.isAuthenticated) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-6 max-w-md mx-auto text-center">
@@ -1762,15 +1742,16 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
           </button>
         )}
       </div>
+
       <Tabs defaultValue="plan" className="w-full gap-6">
         <TabsList className="w-full group-data-[orientation=horizontal]/tabs:h-12">
           <TabsTrigger value="plan">Plan</TabsTrigger>
           <TabsTrigger value="myBookings">My Bookings</TabsTrigger>
           <TabsTrigger value="admin">Admin</TabsTrigger>
         </TabsList>
+
         <TabsContent value="plan" className="gap-6 flex flex-col">
           <div className="space-y-3 bg-muted p-4 rounded-lg">
-            {/* FIX #3: Name section — 3 modes */}
             <div className="space-y-2 relative">
               <Label
                 className="text-xs font-semibold tracking-wider uppercase"
@@ -1784,7 +1765,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
               </Label>
 
               {AUTH_MODE !== "none" && !CAN_EDIT_ANY ? (
-                /* sgid + self_only: static name with NEW badge for unknown users */
                 <>
                   <div
                     className="flex items-center rounded-xl px-4 py-3"
@@ -1832,7 +1812,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                   )}
                 </>
               ) : (
-                /* none OR sgid+edit_any: dropdown */
                 <>
                   <div
                     className="flex items-center rounded-xl px-4 py-3 cursor-pointer transition-colors"
@@ -1909,7 +1888,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                       </div>
                     </div>
                   )}
-                  {/* FIX #3: editing-other notice */}
                   {isEditingOther && (
                     <p
                       className="text-[11px] font-medium mt-1"
@@ -2015,7 +1993,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                 </div>
               </div>
 
-              {/* Week grid */}
               <div className="space-y-3">
                 {dayKeys.map((dateISO) => {
                   const day = plan.days[dateISO];
@@ -2132,7 +2109,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                 })}
               </div>
 
-              {/* No-ration banner */}
               {!hasAnyRation && !readOnlyWeek && (
                 <div
                   className="rounded-xl p-4 flex items-center justify-between"
@@ -2220,7 +2196,6 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
                 </div>
               )}
 
-              {/* Actions */}
               <div className="flex gap-3">
                 <Button
                   onClick={clearWeek}
@@ -2264,9 +2239,11 @@ export default function RationPlanner({ namelist }: WeeklyRationPlannerProps) {
             </>
           )}
         </TabsContent>
+
         <TabsContent value="myBookings" className="gap-6 flex flex-col">
           <MonthlyOverview serverCache={serverCache} name={name} />
         </TabsContent>
+
         <TabsContent value="admin" className="gap-6 flex flex-col">
           <AdminView namelist={namelist} />
         </TabsContent>
