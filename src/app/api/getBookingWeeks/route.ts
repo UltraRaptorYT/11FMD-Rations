@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
-import { fromISO, toISO, startOfWeekMonday, startOfDayLocal } from "@/lib/utils";
+import { fromISO, toISO, startOfDayLocal, startOfWeekMonday } from "@/lib/utils";
 
 const auth = new google.auth.GoogleAuth({
   credentials: {
@@ -14,6 +14,14 @@ const sheets = google.sheets({ version: "v4", auth });
 
 const SHEET_ID = process.env.RATION_SHEET_ID!;
 const BOOKING_WEEKS_SHEET_NAME = process.env.BOOKING_WEEKS_SHEET_NAME!;
+
+type BookingWeekStatus = {
+  weekStart: string;
+  autoLocked: boolean | null;
+  adminOverride: "LOCK" | "UNLOCK" | null;
+  finalLocked: boolean;
+  source: "booking_weeks" | "fallback_env";
+};
 
 function addDaysLocal(date: Date, n: number) {
   const d = new Date(date);
@@ -30,14 +38,53 @@ function getFallbackMinBookableWeekStartISO() {
 }
 
 function toBool(v: unknown): boolean | null {
-  if (v === true || v === "TRUE" || v === "true" || v === 1 || v === "1") return true;
-  if (v === false || v === "FALSE" || v === "false" || v === 0 || v === "0") return false;
+  if (
+    v === true ||
+    v === "TRUE" ||
+    v === "true" ||
+    v === 1 ||
+    v === "1"
+  ) {
+    return true;
+  }
+  if (
+    v === false ||
+    v === "FALSE" ||
+    v === "false" ||
+    v === 0 ||
+    v === "0"
+  ) {
+    return false;
+  }
   return null;
 }
 
 function toOverride(v: unknown): "LOCK" | "UNLOCK" | null {
   const s = String(v ?? "").trim().toUpperCase();
   if (s === "LOCK" || s === "UNLOCK") return s;
+  return null;
+}
+
+function parseSheetDate(value: string): Date | null {
+  const raw = value.trim();
+  if (!raw) return null;
+
+  // Preferred ISO format: 2026-01-05
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    try {
+      return fromISO(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  // Fallback for display strings like 5-Jan-2026
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    parsed.setHours(0, 0, 0, 0);
+    return parsed;
+  }
+
   return null;
 }
 
@@ -52,12 +99,15 @@ export async function GET() {
 
     const rows = (res.data.values ?? []) as unknown[][];
 
-    const weeks = rows
+    const weeks: BookingWeekStatus[] = rows
       .map((r) => {
         const rawWeekStart = String(r?.[0] ?? "").trim();
         if (!rawWeekStart) return null;
 
-        const weekStart = toISO(startOfWeekMonday(fromISO(rawWeekStart)));
+        const parsedWeekStart = parseSheetDate(rawWeekStart);
+        if (!parsedWeekStart) return null;
+
+        const weekStart = toISO(startOfWeekMonday(parsedWeekStart));
         const autoLocked = toBool(r?.[1]);
         const adminOverride = toOverride(r?.[2]);
         const finalLockedRaw = toBool(r?.[3]);
@@ -66,6 +116,30 @@ export async function GET() {
 
         return {
           weekStart,
+          autoLocked,
+          adminOverride,
+          finalLocked: finalLockedRaw ?? fallbackLocked,
+          source: finalLockedRaw === null ? "fallback_env" : "booking_weeks",
+        } satisfies BookingWeekStatus;
+      })
+      .filter((w): w is BookingWeekStatus => w !== null);
+
+    return NextResponse.json(
+      {
+        ok: true,
+        fallbackMinBookableWeekStart,
+        weeks,
+      },
+      { status: 200 },
+    );
+  } catch (err) {
+    console.error("GET getBookingWeeks Error:", err);
+    return NextResponse.json(
+      { error: "Failed to fetch booking weeks" },
+      { status: 500 },
+    );
+  }
+}          weekStart,
           autoLocked,
           adminOverride,
           finalLocked: finalLockedRaw ?? fallbackLocked,
