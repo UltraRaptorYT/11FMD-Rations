@@ -544,10 +544,17 @@ function AdminView({ namelist }: { namelist: string[] }) {
   }, [adminData, selectedDate]);
 
   const dayNameSets = useMemo(() => {
+    const allBookings = adminData[selectedDate] || [];
+    const activeNames = new Set(
+      allBookings.filter((b) => b.status === "active").map((b) => b.name),
+    );
+    const cancelledNames = new Set(
+      allBookings.filter((b) => b.status === "cancelled").map((b) => b.name),
+    );
     const submittedSet = new Set(submittedNames);
     const notSubmitted = namelist.filter((n) => !submittedSet.has(n));
     return { notSubmitted };
-  }, [submittedNames, namelist]);
+  }, [adminData, selectedDate, submittedNames, namelist]);
 
   type CopyTarget = "submitted" | "notSubmitted" | "cancelled";
   const [copiedList, setCopiedList] = useState<CopyTarget | null>(null);
@@ -1102,6 +1109,19 @@ function AdminView({ namelist }: { namelist: string[] }) {
             "#555",
             true,
           )}
+
+          {dayStats.cancelled.length > 0 &&
+            renderNameList(
+              "Not Indented",
+              dayStats.cancelled,
+              "#1a1511",
+              "#f59e0b",
+              "#f59e0b66",
+              "cancelled",
+              "",
+              "#555",
+              true,
+            )}
 
           {renderNameList(
             "Not Submitted",
