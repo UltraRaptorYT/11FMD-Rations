@@ -14,6 +14,7 @@ const sheets = google.sheets({ version: "v4", auth });
 
 const SHEET_ID = process.env.RATION_SHEET_ID!;
 const BOOKING_WEEKS_SHEET_NAME = process.env.BOOKING_WEEKS_SHEET_NAME!;
+const CONFIG_SHEET_NAME = process.env.CONFIG_SHEET_NAME || "CONFIG";
 
 type BookingWeekStatus = {
   weekStart: string;
@@ -29,11 +30,8 @@ function addDaysLocal(date: Date, n: number) {
   return d;
 }
 
-function getFallbackMinBookableWeekStartISO() {
-  const lead = addDaysLocal(
-    startOfDayLocal(),
-    Number(process.env.NEXT_PUBLIC_LEAD_TIME) * 7 + 4,
-  );
+function getFallbackMinBookableWeekStartISO(leadTimeWeeks: number) {
+  const lead = addDaysLocal(startOfDayLocal(), leadTimeWeeks * 7 + 4);
   return toISO(startOfWeekMonday(lead));
 }
 
@@ -69,7 +67,7 @@ function parseSheetDate(value: string): Date | null {
   const raw = value.trim();
   if (!raw) return null;
 
-  // Preferred ISO format: 2026-01-05
+  // ISO format: 2026-01-05
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
     try {
       return fromISO(raw);
@@ -78,7 +76,7 @@ function parseSheetDate(value: string): Date | null {
     }
   }
 
-  // Fallback for display strings like 5-Jan-2026
+  // Fallback for sheet display strings like 5-Jan-2026
   const parsed = new Date(raw);
   if (!Number.isNaN(parsed.getTime())) {
     parsed.setHours(0, 0, 0, 0);
@@ -88,10 +86,33 @@ function parseSheetDate(value: string): Date | null {
   return null;
 }
 
+function getConfigValue(rows: unknown[][], key: string): string | null {
+  for (const row of rows) {
+    const k = String(row?.[0] ?? "").trim();
+    const v = String(row?.[1] ?? "").trim();
+    if (k === key) return v;
+  }
+  return null;
+}
+
 export async function GET() {
   try {
-    const fallbackMinBookableWeekStart = getFallbackMinBookableWeekStartISO();
+    // 1) Read config
+    const configRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${CONFIG_SHEET_NAME}!A2:B`,
+    });
 
+    const configRows = (configRes.data.values ?? []) as unknown[][];
+    const leadTimeWeeks =
+      Number(getConfigValue(configRows, "lead_time_weeks")) ||
+      Number(process.env.NEXT_PUBLIC_LEAD_TIME) ||
+      3;
+
+    const fallbackMinBookableWeekStart =
+      getFallbackMinBookableWeekStartISO(leadTimeWeeks);
+
+    // 2) Read booking weeks
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: `${BOOKING_WEEKS_SHEET_NAME}!A2:D`,
@@ -120,13 +141,14 @@ export async function GET() {
           adminOverride,
           finalLocked: finalLockedRaw ?? fallbackLocked,
           source: finalLockedRaw === null ? "fallback_env" : "booking_weeks",
-        } satisfies BookingWeekStatus;
+        } as BookingWeekStatus;
       })
       .filter((w): w is BookingWeekStatus => w !== null);
 
     return NextResponse.json(
       {
         ok: true,
+        leadTimeWeeks,
         fallbackMinBookableWeekStart,
         weeks,
       },
