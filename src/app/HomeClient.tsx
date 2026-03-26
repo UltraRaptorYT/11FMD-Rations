@@ -107,13 +107,15 @@ type BookingWeekStatus = {
   source: "booking_weeks" | "fallback_env";
 };
 
+type InitialBookingWeeksDataProps = {
+  fallbackMinBookableWeekStart: string | null;
+  leadTimeWeeks?: number;
+  weeks: BookingWeekStatus[];
+};
+
 type HomeClientProps = {
   namelist: string[];
-  initialBookingWeeksData: {
-    fallbackMinBookableWeekStart: string | null;
-    leadTimeWeeks?: number;
-    weeks: BookingWeekStatus[];
-  };
+  initialBookingWeeksData: InitialBookingWeeksDataProps;
 };
 
 type MonthlyOverviewProps = {
