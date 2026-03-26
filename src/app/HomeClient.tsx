@@ -111,6 +111,7 @@ type HomeClientProps = {
   namelist: string[];
   initialBookingWeeksData: {
     fallbackMinBookableWeekStart: string | null;
+    leadTimeWeeks?: number;
     weeks: BookingWeekStatus[];
   };
 };
@@ -1311,7 +1312,9 @@ export default function HomeClient({
 
   const [submittedFingerprint, setSubmittedFingerprint] = useState<string>("");
   const [submittedRationType, setSubmittedRationType] = useState<string>("");
-
+  
+  const leadTimeWeeks = initialBookingWeeksData.leadTimeWeeks ?? 3;
+  
   useEffect(() => {
     try {
       setSubmittedFingerprint(localStorage.getItem(submittedKey) ?? "");
@@ -1971,7 +1974,7 @@ export default function HomeClient({
                     year: "numeric",
                   })}
                   <div className="text-xs mt-0.5" style={{ color: "#666" }}>
-                    Mon-Fri · {process.env.NEXT_PUBLIC_LEAD_TIME ?? 3}-week lead
+                    Mon-Fri · {leadTimeWeeks}-week lead time
                     time
                     <br />
                     {readOnlyWeek ? (
