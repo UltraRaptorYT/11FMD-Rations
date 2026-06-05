@@ -33,6 +33,21 @@ async function getBookingWeeks() {
   };
 }
 
+async function getPublicHolidays() {
+  const baseUrl = getBaseUrl() ?? "http://localhost:3000";
+  const url = new URL("/api/getPublicHolidays", baseUrl);
+
+  const res = await fetch(url.toString(), { cache: "no-store" }).catch(
+    () => null,
+  );
+  if (!res?.ok) return [];
+
+  const data = (await res.json()) as {
+    holidays?: { date: string; holiday: string }[];
+  };
+  return data.holidays ?? [];
+}
+
 export default async function Page({
   searchParams,
 }: {
@@ -40,9 +55,10 @@ export default async function Page({
 }) {
   const reload = searchParams?.reload === "true";
 
-  const [items, bookingWeeksData] = await Promise.all([
+  const [items, bookingWeeksData, publicHolidays] = await Promise.all([
     getUsers(reload),
     getBookingWeeks(),
+    getPublicHolidays(),
   ]);
 
   return (
@@ -50,6 +66,7 @@ export default async function Page({
       <HomeClient
         namelist={items}
         initialBookingWeeksData={bookingWeeksData}
+        publicHolidays={publicHolidays}
       />
     </div>
   );

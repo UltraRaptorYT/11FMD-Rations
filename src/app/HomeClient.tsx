@@ -114,6 +114,7 @@ type HomeClientProps = {
     leadTimeWeeks?: number;
     weeks: BookingWeekStatus[];
   };
+  publicHolidays: { date: string; holiday: string }[];
 };
 
 type MonthlyOverviewProps = {
@@ -1260,6 +1261,7 @@ function AdminView({ namelist }: { namelist: string[] }) {
 export default function HomeClient({
   namelist,
   initialBookingWeeksData,
+  publicHolidays,
 }: HomeClientProps) {
   const auth = useAuth();
   const baseKey = "rationDetails";
@@ -1302,6 +1304,23 @@ export default function HomeClient({
   const dayKeys = useMemo(() => Object.keys(plan.days).sort(), [plan.days]);
   const readOnlyWeek =
     bookingWeekLocks[weekStart] ?? (weekStart < fallbackMinBookableWeekStart);
+  const publicHolidayByDate = useMemo(() => {
+    const holidays: Record<string, string> = {};
+    for (const holiday of publicHolidays ?? []) {
+      if (holiday.date && holiday.holiday) {
+        holidays[holiday.date] = holiday.holiday;
+      }
+    }
+    return holidays;
+  }, [publicHolidays]);
+
+  const isDateLocked = useCallback(
+    (dateISO: string) =>
+      readOnlyWeek ||
+      isPastDateLocked(dateISO) ||
+      Boolean(publicHolidayByDate[dateISO]),
+    [publicHolidayByDate, readOnlyWeek],
+  );
 
   const submittedKey = `${baseKey}:weekSubmitted:${weekStart}`;
   const submittedRationKey = `${baseKey}:weekSubmittedRation:${weekStart}`;
@@ -1389,6 +1408,25 @@ export default function HomeClient({
   useEffect(() => {
     if (hasAnyRation) setNoRationConfirmed(false);
   }, [hasAnyRation]);
+
+  useEffect(() => {
+    setPlan((prev) => {
+      let changed = false;
+      const next = structuredClone(prev);
+
+      for (const [dateISO, holiday] of Object.entries(publicHolidayByDate)) {
+        const day = next.days[dateISO];
+        if (!holiday || !day) continue;
+        if (day.enabled || day.meals.B || day.meals.L || day.meals.D) {
+          day.enabled = false;
+          day.meals = { B: false, L: false, D: false };
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [publicHolidayByDate, weekStart]);
 
   const isEditingOther =
     AUTH_MODE !== "none" && CAN_EDIT_ANY && auth.name
@@ -1574,7 +1612,7 @@ export default function HomeClient({
     guardNavigate(() => setWeekStart(nextWeekStartISO(weekStart, +1)));
 
   const setDayEnabled = (dateISO: string, enabled: boolean) => {
-    if (readOnlyWeek || isPastDateLocked(dateISO)) return;
+    if (isDateLocked(dateISO)) return;
     setHasTouchedWeek(true);
 
     setPlan((prev) => {
@@ -1586,7 +1624,7 @@ export default function HomeClient({
   };
 
   const toggleMeal = (dateISO: string, meal: Meal) => {
-    if (readOnlyWeek || isPastDateLocked(dateISO)) return;
+    if (isDateLocked(dateISO)) return;
     setHasTouchedWeek(true);
 
     setPlan((prev) => {
@@ -2027,7 +2065,8 @@ export default function HomeClient({
                   const monthShort = dateObj.toLocaleDateString("en-GB", {
                     month: "short",
                   });
-                  const locked = readOnlyWeek || isPastDateLocked(dateISO);
+                  const publicHoliday = publicHolidayByDate[dateISO];
+                  const locked = isDateLocked(dateISO);
                   const isIncomplete =
                     day.enabled && !day.meals.B && !day.meals.L && !day.meals.D;
 
@@ -2065,11 +2104,19 @@ export default function HomeClient({
                           </span>
                           {locked ? (
                             <span className="text-xs opacity-60 text-orange-500">
-                              (Locked)
+                              {publicHoliday ? "(PH)" : "(Locked)"}
                             </span>
                           ) : null}
                         </div>
                         <div className="flex-1 flex flex-col gap-2">
+                          {publicHoliday ? (
+                            <p
+                              className="text-xs font-medium"
+                              style={{ color: "#f59e0b" }}
+                            >
+                              {publicHoliday}
+                            </p>
+                          ) : null}
                           {day.enabled && (
                             <>
                               <div className="flex items-center gap-2">
