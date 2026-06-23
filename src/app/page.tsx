@@ -21,6 +21,9 @@ async function getBookingWeeks() {
   if (!res.ok) {
     return {
       fallbackMinBookableWeekStart: null,
+      firstUnlockedWeekStart: null,
+      leadTimeWeeks: undefined,
+      autoLockCutoffDays: undefined,
       weeks: [],
     };
   }
@@ -29,6 +32,13 @@ async function getBookingWeeks() {
   return {
     fallbackMinBookableWeekStart:
       data?.fallbackMinBookableWeekStart ?? null,
+    firstUnlockedWeekStart: data?.firstUnlockedWeekStart ?? null,
+    leadTimeWeeks:
+      typeof data?.leadTimeWeeks === "number" ? data.leadTimeWeeks : undefined,
+    autoLockCutoffDays:
+      typeof data?.autoLockCutoffDays === "number"
+        ? data.autoLockCutoffDays
+        : undefined,
     weeks: data?.weeks ?? [],
   };
 }

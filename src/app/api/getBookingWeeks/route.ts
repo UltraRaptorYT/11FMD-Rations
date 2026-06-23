@@ -13,7 +13,8 @@ const auth = new google.auth.GoogleAuth({
 const sheets = google.sheets({ version: "v4", auth });
 
 const SHEET_ID = process.env.RATION_SHEET_ID!;
-const BOOKING_WEEKS_SHEET_NAME = process.env.BOOKING_WEEKS_SHEET_NAME!;
+const BOOKING_WEEKS_SHEET_NAME =
+  process.env.BOOKING_WEEKS_SHEET_NAME || "BOOKING_WEEKS";
 const CONFIG_SHEET_NAME = process.env.CONFIG_SHEET_NAME || "CONFIG";
 
 type BookingWeekStatus = {
@@ -30,8 +31,14 @@ function addDaysLocal(date: Date, n: number) {
   return d;
 }
 
-function getFallbackMinBookableWeekStartISO(leadTimeWeeks: number) {
-  const lead = addDaysLocal(startOfDayLocal(), leadTimeWeeks * 7 + 4);
+function getFallbackMinBookableWeekStartISO(
+  leadTimeWeeks: number,
+  autoLockCutoffDays: number,
+) {
+  const lead = addDaysLocal(
+    startOfDayLocal(),
+    leadTimeWeeks * 7 + autoLockCutoffDays,
+  );
   return toISO(startOfWeekMonday(lead));
 }
 
@@ -98,27 +105,65 @@ function getConfigValue(rows: unknown[][], key: string): string | null {
 export async function GET() {
   try {
     // 1) Read config
-    const configRes = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: `${CONFIG_SHEET_NAME}!A2:B`,
-    });
+    let configRows: unknown[][] = [];
+    try {
+      const configRes = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: `${CONFIG_SHEET_NAME}!A2:B`,
+      });
+      configRows = (configRes.data.values ?? []) as unknown[][];
+    } catch (error) {
+      console.warn(
+        "Could not read lead time from CONFIG; using env/default fallback:",
+        error,
+      );
+    }
 
-    const configRows = (configRes.data.values ?? []) as unknown[][];
+    const configLeadTimeRaw = getConfigValue(configRows, "lead_time_weeks");
+    const configLeadTime =
+      configLeadTimeRaw === null ? Number.NaN : Number(configLeadTimeRaw);
+    const envLeadTime = Number(process.env.NEXT_PUBLIC_LEAD_TIME);
     const leadTimeWeeks =
-      Number(getConfigValue(configRows, "lead_time_weeks")) ||
-      Number(process.env.NEXT_PUBLIC_LEAD_TIME) ||
-      3;
+      Number.isFinite(configLeadTime) && configLeadTime >= 0
+        ? configLeadTime
+        : Number.isFinite(envLeadTime) && envLeadTime >= 0
+          ? envLeadTime
+          : 2;
+    const configCutoffRaw = getConfigValue(
+      configRows,
+      "auto_lock_cutoff_days",
+    );
+    const configCutoff =
+      configCutoffRaw === null ? Number.NaN : Number(configCutoffRaw);
+    const autoLockCutoffDays =
+      Number.isFinite(configCutoff) && configCutoff >= 0 ? configCutoff : 4;
+    const leadTimeSource =
+      Number.isFinite(configLeadTime) && configLeadTime >= 0
+        ? "config"
+        : Number.isFinite(envLeadTime) && envLeadTime >= 0
+          ? "env"
+          : "default";
 
     const fallbackMinBookableWeekStart =
-      getFallbackMinBookableWeekStartISO(leadTimeWeeks);
+      getFallbackMinBookableWeekStartISO(
+        leadTimeWeeks,
+        autoLockCutoffDays,
+      );
 
     // 2) Read booking weeks
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: `${BOOKING_WEEKS_SHEET_NAME}!A2:D`,
-    });
-
-    const rows = (res.data.values ?? []) as unknown[][];
+    let rows: unknown[][] = [];
+    try {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: `${BOOKING_WEEKS_SHEET_NAME}!A2:D`,
+      });
+      rows = (res.data.values ?? []) as unknown[][];
+    } catch (error) {
+      console.warn(
+        "Could not read BOOKING_WEEKS; using calculated lock fallback:",
+        error,
+      );
+    }
 
     const weeks: BookingWeekStatus[] = rows
       .map((r) => {
@@ -145,11 +190,24 @@ export async function GET() {
       })
       .filter((w): w is BookingWeekStatus => w !== null);
 
+    const firstUnlockedWeekStart =
+      weeks
+        .filter(
+          (week) =>
+            week.weekStart >= fallbackMinBookableWeekStart &&
+            !week.finalLocked,
+        )
+        .sort((a, b) => a.weekStart.localeCompare(b.weekStart))[0]?.weekStart ??
+      fallbackMinBookableWeekStart;
+
     return NextResponse.json(
       {
         ok: true,
         leadTimeWeeks,
+        autoLockCutoffDays,
+        leadTimeSource,
         fallbackMinBookableWeekStart,
+        firstUnlockedWeekStart,
         weeks,
       },
       { status: 200 },

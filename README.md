@@ -18,6 +18,21 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
+## Not-submitted endpoint
+
+Query any date to return the people who have no active meal indent for that
+date's Monday-to-Friday week. Only people whose rank in `NAMELIST` column C
+contains `ME` are included:
+
+```text
+/api/getNotSubmitted?date=2026-06-22
+```
+
+The lead time is read from `lead_time_weeks` in the configured `CONFIG` sheet.
+`NEXT_PUBLIC_LEAD_TIME` is used only if that value cannot be read, and the
+final default is 2 weeks. `auto_lock_cutoff_days` is applied together with the
+lead time, and the booking page opens the first unlocked week.
+
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Learn More

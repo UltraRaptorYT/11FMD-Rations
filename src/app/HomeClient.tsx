@@ -66,10 +66,13 @@ function isPastDateLocked(dateISO: string) {
   return d < today;
 }
 
-function getMinBookableWeekStartISO() {
+function getMinBookableWeekStartISO(
+  leadTimeWeeks: number,
+  autoLockCutoffDays: number,
+) {
   const lead = addDaysLocal(
     startOfDayLocal(),
-    Number(process.env.NEXT_PUBLIC_LEAD_TIME) * 7 + 4,
+    leadTimeWeeks * 7 + autoLockCutoffDays,
   );
   return toISO(startOfWeekMonday(lead));
 }
@@ -111,7 +114,9 @@ type HomeClientProps = {
   namelist: string[];
   initialBookingWeeksData: {
     fallbackMinBookableWeekStart: string | null;
+    firstUnlockedWeekStart?: string | null;
     leadTimeWeeks?: number;
+    autoLockCutoffDays?: number;
     weeks: BookingWeekStatus[];
   };
   publicHolidays: { date: string; holiday: string }[];
@@ -1270,7 +1275,21 @@ export default function HomeClient({
   const [rationType, setRationType] = useState<RationType | "">("");
   const [nameSearch, setNameSearch] = useState("");
   const [showNameDropdown, setShowNameDropdown] = useState(false);
-  const minWeekStartISO = useMemo(() => getMinBookableWeekStartISO(), []);
+  const leadTimeWeeks = initialBookingWeeksData.leadTimeWeeks ?? 2;
+  const autoLockCutoffDays =
+    initialBookingWeeksData.autoLockCutoffDays ?? 4;
+  const minWeekStartISO = useMemo(
+    () =>
+      initialBookingWeeksData.firstUnlockedWeekStart ??
+      initialBookingWeeksData.fallbackMinBookableWeekStart ??
+      getMinBookableWeekStartISO(leadTimeWeeks, autoLockCutoffDays),
+    [
+      initialBookingWeeksData.firstUnlockedWeekStart,
+      initialBookingWeeksData.fallbackMinBookableWeekStart,
+      leadTimeWeeks,
+      autoLockCutoffDays,
+    ],
+  );
   const [name, setName] = useState("");
   const [hasTouchedWeek, setHasTouchedWeek] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1331,8 +1350,6 @@ export default function HomeClient({
 
   const [submittedFingerprint, setSubmittedFingerprint] = useState<string>("");
   const [submittedRationType, setSubmittedRationType] = useState<string>("");
-  
-  const leadTimeWeeks = initialBookingWeeksData.leadTimeWeeks ?? 3;
   
   useEffect(() => {
     try {
