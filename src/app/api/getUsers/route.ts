@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
+import { requireApiSecret } from "@/lib/require-api-secret";
 
 // Auth setup
 const auth = new google.auth.GoogleAuth({
@@ -17,7 +18,7 @@ const SHEET_NAME = process.env.NAMELIST_SHEET_NAME!;
 
 // ---- Simple in-memory TTL cache (per server instance) ----
 type CacheEntry<T> = { value: T; expiresAt: number };
-const cache = new Map<string, CacheEntry<any>>();
+const cache = new Map<string, CacheEntry<unknown>>();
 
 function getCache<T>(key: string): T | null {
   const entry = cache.get(key);
@@ -36,6 +37,9 @@ function setCache<T>(key: string, value: T, ttlMs: number) {
 const TTL_MS = 60_000;
 
 export async function GET(request: Request) {
+  const unauthorized = requireApiSecret(request);
+  if (unauthorized) return unauthorized;
+
   const url = new URL(request.url);
   const forceReload = url.searchParams.get("reload") === "true"; // ?reload=true
 

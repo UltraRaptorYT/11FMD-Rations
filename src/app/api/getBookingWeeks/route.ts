@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
 import { fromISO, toISO, startOfDayLocal, startOfWeekMonday } from "@/lib/utils";
+import { requireApiSecret } from "@/lib/require-api-secret";
 
 const auth = new google.auth.GoogleAuth({
   credentials: {
@@ -102,7 +103,10 @@ function getConfigValue(rows: unknown[][], key: string): string | null {
   return null;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const unauthorized = requireApiSecret(request);
+  if (unauthorized) return unauthorized;
+
   try {
     // 1) Read config
     let configRows: unknown[][] = [];

@@ -1,12 +1,21 @@
 import HomeClient from "@/app/HomeClient";
 import { getBaseUrl } from "@/lib/get-base-url";
 
+function getApiHeaders() {
+  return {
+    Authorization: `Bearer ${process.env.API_SECRET ?? ""}`,
+  };
+}
+
 async function getUsers(reload?: boolean) {
   const baseUrl = getBaseUrl() ?? "http://localhost:3000";
   const url = new URL("/api/getUsers", baseUrl);
   if (reload) url.searchParams.set("reload", "true");
 
-  const res = await fetch(url.toString(), { cache: "no-store" });
+  const res = await fetch(url.toString(), {
+    cache: "no-store",
+    headers: getApiHeaders(),
+  });
   if (!res.ok) return [];
 
   const data = (await res.json()) as { items?: string[]; rows?: string[][] };
@@ -17,7 +26,10 @@ async function getBookingWeeks() {
   const baseUrl = getBaseUrl() ?? "http://localhost:3000";
   const url = new URL("/api/getBookingWeeks", baseUrl);
 
-  const res = await fetch(url.toString(), { cache: "no-store" });
+  const res = await fetch(url.toString(), {
+    cache: "no-store",
+    headers: getApiHeaders(),
+  });
   if (!res.ok) {
     return {
       fallbackMinBookableWeekStart: null,
@@ -47,9 +59,10 @@ async function getPublicHolidays() {
   const baseUrl = getBaseUrl() ?? "http://localhost:3000";
   const url = new URL("/api/getPublicHolidays", baseUrl);
 
-  const res = await fetch(url.toString(), { cache: "no-store" }).catch(
-    () => null,
-  );
+  const res = await fetch(url.toString(), {
+    cache: "no-store",
+    headers: getApiHeaders(),
+  }).catch(() => null);
   if (!res?.ok) return [];
 
   const data = (await res.json()) as {

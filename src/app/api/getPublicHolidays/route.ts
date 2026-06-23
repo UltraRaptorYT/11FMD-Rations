@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiSecret } from "@/lib/require-api-secret";
 
 const PUBLIC_HOLIDAYS_DATASET_ID =
   process.env.PUBLIC_HOLIDAYS_DATASET_ID ??
@@ -63,7 +64,10 @@ async function fetchPublicHolidays() {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const unauthorized = requireApiSecret(request);
+  if (unauthorized) return unauthorized;
+
   try {
     if (cache && Date.now() < cache.expiresAt) {
       return NextResponse.json({

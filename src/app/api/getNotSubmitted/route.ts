@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
 import { fromISO, getMonFri, startOfWeekMonday, toISO } from "@/lib/utils";
+import { requireApiSecret } from "@/lib/require-api-secret";
 
 const auth = new google.auth.GoogleAuth({
   credentials: {
@@ -23,6 +24,9 @@ function isISODate(value: string) {
 }
 
 export async function GET(request: Request) {
+  const unauthorized = requireApiSecret(request);
+  if (unauthorized) return unauthorized;
+
   try {
     const url = new URL(request.url);
     const date = (url.searchParams.get("date") ?? "").trim();

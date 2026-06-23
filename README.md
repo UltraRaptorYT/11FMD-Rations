@@ -29,6 +29,15 @@ included:
 /api/getNotSubmitted?date=2026-06-22
 ```
 
+Server-facing API routes require:
+
+```text
+Authorization: Bearer <API_SECRET>
+```
+
+Set the same `API_SECRET` in the application environment and in trusted
+server-to-server callers. Never expose it through a `NEXT_PUBLIC_` variable.
+
 The lead time is read from `lead_time_weeks` in the configured `CONFIG` sheet.
 `NEXT_PUBLIC_LEAD_TIME` is used only if that value cannot be read, and the
 final default is 2 weeks. `auto_lock_cutoff_days` is applied together with the
