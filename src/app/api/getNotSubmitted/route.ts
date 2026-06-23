@@ -22,15 +22,6 @@ function isISODate(value: string) {
   return !Number.isNaN(parsed.getTime()) && toISO(parsed) === value;
 }
 
-function isSelected(value: unknown) {
-  return (
-    value === 1 ||
-    value === "1" ||
-    value === true ||
-    String(value).trim().toUpperCase() === "TRUE"
-  );
-}
-
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
@@ -73,37 +64,26 @@ export async function GET(request: Request) {
       ...new Set(
         (namesResponse.data.values ?? [])
           .filter((row) =>
-            !String(row?.[2] ?? "")
-              .trim()
-              .toUpperCase()
-              .includes("ME"),
+            !String(row?.[2] ?? "").trim().toUpperCase().includes("ME"),
           )
           .map((row) => String(row?.[0] ?? "").trim())
           .filter(Boolean),
       ),
     ];
 
-    const indentedNameKeys = new Set<string>();
+    const submittedNameKeys = new Set<string>();
 
     for (const row of rationsResponse.data.values ?? []) {
       const rowWeekStart = String(row?.[0] ?? "").trim();
       const name = String(row?.[2] ?? "").trim();
-      const status = String(row?.[7] ?? "").trim().toUpperCase();
-      const hasMeal =
-        isSelected(row?.[4]) || isSelected(row?.[5]) || isSelected(row?.[6]);
 
-      if (
-        rowWeekStart === weekStart &&
-        name &&
-        status !== "CANCELLED" &&
-        hasMeal
-      ) {
-        indentedNameKeys.add(name.toLocaleLowerCase());
+      if (rowWeekStart === weekStart && name) {
+        submittedNameKeys.add(name.toLocaleLowerCase());
       }
     }
 
     const notSubmitted = names.filter(
-      (name) => !indentedNameKeys.has(name.toLocaleLowerCase()),
+      (name) => !submittedNameKeys.has(name.toLocaleLowerCase()),
     );
 
     return NextResponse.json(
@@ -120,7 +100,7 @@ export async function GET(request: Request) {
   } catch (error) {
     console.error("GET getNotSubmitted Error:", error);
     return NextResponse.json(
-      { error: "Failed to fetch non-indenters" },
+      { error: "Failed to fetch people who have not submitted" },
       { status: 500 },
     );
   }

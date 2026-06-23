@@ -20,9 +20,10 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 ## Not-submitted endpoint
 
-Query any date to return the people who have no active meal indent for that
-date's Monday-to-Friday week. Only people whose rank in `NAMELIST` column C
-contains `ME` are included:
+Query any date to return people who have no ration submission rows for that
+date's Monday-to-Friday week. A deliberate no-indent submission counts as
+submitted. Only people whose rank in `NAMELIST` column C contains `ME` are
+included:
 
 ```text
 /api/getNotSubmitted?date=2026-06-22
