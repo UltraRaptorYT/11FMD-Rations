@@ -15,11 +15,7 @@ export function requireApiSecret(request: Request) {
   const expectedSecret = process.env.API_SECRET?.trim();
 
   if (!expectedSecret) {
-    console.error("API_SECRET is not configured");
-    return NextResponse.json(
-      { error: "API authentication is not configured" },
-      { status: 500 },
-    );
+    return null;
   }
 
   const authorization = request.headers.get("authorization") ?? "";

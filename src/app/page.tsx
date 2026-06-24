@@ -2,9 +2,8 @@ import HomeClient from "@/app/HomeClient";
 import { getBaseUrl } from "@/lib/get-base-url";
 
 function getApiHeaders() {
-  return {
-    Authorization: `Bearer ${process.env.API_SECRET ?? ""}`,
-  };
+  const apiSecret = process.env.API_SECRET?.trim();
+  return apiSecret ? { Authorization: `Bearer ${apiSecret}` } : undefined;
 }
 
 async function getUsers(reload?: boolean) {
